@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Oktatótermek">
+  <!-- Ideiglenes jelkép. Ha megvan az egyetem hivatalos logója (SVG vagy PNG),
+       ezt a fájlt kell lecserélni ugyanezen a néven: logo.svg -->
+  <rect width="64" height="64" rx="12" fill="#232f61"/>
+  <g fill="none" stroke="#e3d496" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 26 32 16l18 10"/>
+    <path d="M18 28v20h28V28"/>
+    <path d="M26 48V36h12v12"/>
+  </g>
+  <circle cx="41" cy="41" r="2.4" fill="#e3d496"/>
+</svg>

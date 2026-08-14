@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#232f61">
+<title>Oktatótermek — Sürgősségi Orvostani Klinika</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css?v=202608141054">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23232f61'/%3E%3Cpath d='M7 12h18M7 12v13h18V12M7 12l2-4h14l2 4' stroke='%23e3d496' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════ BELÉPÉS ══ -->
+<div id="belepes" class="belepes-lap" hidden>
+  <div class="belepes-kartya">
+    <div class="markjel">
+      <img src="logo.svg" alt="" class="logo-kep" onerror="this.remove()">
+      <div class="szojel">
+        <span class="szojel-fo">Semmelweis Egyetem</span>
+        <span class="szojel-al">Sürgősségi Orvostani Klinika</span>
+      </div>
+    </div>
+    <h1>Oktatótermek</h1>
+    <p class="belepes-alcim">Terembeosztás és oktatási eszközök nyilvántartása</p>
+
+    <form id="belepes-form" autocomplete="on">
+      <label for="be-email">E-mail</label>
+      <input id="be-email" type="email" autocomplete="username" required
+             placeholder="nev@semmelweis.hu">
+      <label for="be-jelszo">Jelszó</label>
+      <div class="jelszo-sor">
+        <input id="be-jelszo" type="password" autocomplete="current-password" required>
+        <button type="button" class="jelszo-mutat" data-cel="be-jelszo" aria-label="Jelszó megjelenítése">👁</button>
+      </div>
+      <button type="submit" class="btn btn-fo btn-blokk" id="be-gomb">Belépés</button>
+      <button type="button" class="btn btn-link" id="be-elfelejtett">Elfelejtett jelszó</button>
+    </form>
+    <p class="belepes-hiba" id="be-hiba" role="alert" hidden></p>
+    <p class="belepes-labjegyzet">
+      Csak a klinika munkatársai számára. A rendszer minden foglalást név szerint tart nyilván.
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ JELSZÓCSERE ══ -->
+<div id="jelszocsere-lap" class="belepes-lap" hidden>
+  <div class="belepes-kartya">
+    <h1>Új jelszó megadása</h1>
+    <p class="belepes-alcim" id="jc-alcim">Biztonsági okból új jelszót kell megadnod:
+      a közös kezdő jelszó nem használható tovább.</p>
+    <form id="jelszocsere-form">
+      <label for="jc-1">Új jelszó</label>
+      <div class="jelszo-sor">
+        <input id="jc-1" type="password" autocomplete="new-password" required minlength="8">
+        <button type="button" class="jelszo-mutat" data-cel="jc-1" aria-label="Jelszó megjelenítése">👁</button>
+      </div>
+      <label for="jc-2">Új jelszó még egyszer</label>
+      <input id="jc-2" type="password" autocomplete="new-password" required minlength="8">
+      <p class="jelszo-szabaly">Legalább 8 karakter, benne kisbetű, nagybetű és szám.</p>
+      <button type="submit" class="btn btn-fo btn-blokk">Jelszó mentése</button>
+      <button type="button" class="btn btn-link" id="jc-kilep">Kilépés</button>
+    </form>
+    <p class="belepes-hiba" id="jc-hiba" role="alert" hidden></p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════ APP ══ -->
+<div id="app" hidden>
+  <header class="fejlec">
+    <div class="fejlec-bal">
+      <img src="logo.svg" alt="" class="logo-kep logo-kicsi" onerror="this.remove()">
+      <div class="fejlec-cim">
+        <strong>Oktatótermek</strong>
+        <span>Semmelweis Egyetem · Sürgősségi Orvostani Klinika</span>
+      </div>
+    </div>
+    <nav class="menu" id="menu"></nav>
+    <div class="fejlec-jobb">
+      <button class="felh-gomb" id="felh-gomb" aria-haspopup="true" aria-expanded="false">
+        <span id="felh-nev">…</span> <span class="nyil">▾</span>
+      </button>
+      <div class="legordulo" id="felh-menu" hidden>
+        <button data-lap="fiokom">Fiókom</button>
+        <button data-lap="javaslat">Visszajelzés</button>
+        <button data-lap="sugo">Súgó</button>
+        <hr>
+        <button id="kilepes-gomb">Kilépés</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="tartalom"></main>
+
+  <footer class="lablec">
+    <span>Semmelweis Egyetem · Sürgősségi Orvostani Klinika</span>
+    <span id="lablec-verzio">v1.0</span>
+  </footer>
+</div>
+
+<div id="modalis-tarto"></div>
+<div id="pirit" class="pirit" role="status" aria-live="polite" hidden></div>
+
+<div id="indulo-allapot" class="belepes-lap">
+  <div class="belepes-kartya" style="text-align:center">
+    <p id="indulo-szoveg" class="belepes-alcim" style="margin:0">Betöltés…</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+  // ha a hálózat blokkolja a külső szkriptet, magyar mondatot lát a felhasználó, nem üres lapot
+  if (!window.supabase) {
+    document.getElementById('indulo-szoveg').innerHTML =
+      'A felület egy külső összetevőt nem tudott letölteni, ezért nem indul el.<br><br>' +
+      'Próbáld újratölteni a lapot. Ha nem segít, valószínűleg a hálózat blokkolja — ' +
+      'jelezd a titkárságnak.';
+  }
+</script>
+<script src="app.js?v=202608141054"></script>
+</body>
+</html>
