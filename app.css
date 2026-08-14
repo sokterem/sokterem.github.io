@@ -526,3 +526,11 @@ input.mentve,select.mentve{background:#e8f7ee; border-color:var(--zold)}
   .nyomtatas-fej span{display:block; font-size:10px; color:#444}
 }
 .nyomtatas-fej{display:none}
+
+/* a napi nézet fejsávja: mit jelent ez a nap (munkanap, pihenőnap, ünnep) */
+.nap-jelleg-sav{
+  display:flex; gap:.4rem; flex-wrap:wrap; align-items:baseline; font-size:.85rem;
+  padding:.45rem .7rem; border-radius:var(--r-s); margin-bottom:.7rem;
+  background:#fdf6f7; border:1px solid #f3c9ce; color:#9b0a1a;
+}
+.nap-jelleg-sav.jelleg-athelyezett-munkanap{background:#f4fbf7; border-color:#bfe6d2; color:#046b39}

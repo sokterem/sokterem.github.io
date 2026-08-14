@@ -971,6 +971,7 @@ function napiRacsHtml() {
   const sav = racsSav([nap]);
   const magas = (sav.veg - sav.kezd) / 60 * ORA_PX;
 
+  const napJ = napJelleg(nap);
   let fej = `<div class="ido-sav sarok"></div>`;
   termek.forEach(t => {
     fej += `<div class="terem-fej" style="border-bottom:3px solid ${szinBiztos(t.szin)}">
@@ -978,11 +979,14 @@ function napiRacsHtml() {
       <span class="hely">${esc(t.nev)}${t.ferohely ? ` · ${t.ferohely} fő` : ''}</span></div>`;
   });
 
-  const oszlopok = termek.map(t => `<div class="nap-oszlop kattinthato"
+  const pihenoNap = ['hetvege', 'pihenonap', 'munkaszuneti'].includes(napJ.fajta);
+  const oszlopok = termek.map(t => `<div class="nap-oszlop kattinthato ${pihenoNap ? 'hetvege' : ''}"
       data-nap="${ymd(nap)}" data-terem="${t.id}" style="height:${magas}px">${
       mostVonal(nap, sav)}${esemenyekHtml(napiSzeletek(nap, t.id), nap, sav, false)}</div>`).join('');
 
-  return `<div class="racs-tarto"><div class="racs"
+  return `${napJ.cimke ? `<div class="nap-jelleg-sav jelleg-${napJ.fajta}">
+      <strong>${esc(napJ.cimke)}</strong> — ${esc(napJ.magyarazat)}</div>` : ''}
+    <div class="racs-tarto"><div class="racs"
       style="--ora:${ORA_PX}px; grid-template-columns:52px repeat(${termek.length},minmax(120px,1fr));
              grid-template-rows:auto ${magas}px">
     ${fej}
@@ -1405,7 +1409,7 @@ function foglalasModalis(f, elo) {
           <option value="0">nem ismétlődik</option>
           <option value="1">minden héten</option>
           <option value="2">kéthetente</option>
-          <option value="7">munkanapokon (hétfő–péntek)</option>
+          <option value="7">munkanapokon (hivatalos munkarend szerint)</option>
         </select></div>
         <div><label for="fm-alkalom">Alkalmak száma</label>
           <input type="number" id="fm-alkalom" min="1" max="40" value="1"></div>
@@ -1589,7 +1593,9 @@ function foglalasModalis(f, elo) {
         while (db < (ismet ? alkalom : 1) && lepes < 400) {
           lepes++;
           if (ismet === 7) {
-            if (d0.getDay() !== 0 && d0.getDay() !== 6) { napok.push(new Date(d0)); db++; }
+            // a hivatalos munkarend szerint: a ledolgozós szombat munkanap,
+            // a munkaszüneti nap és az áthelyezett pihenőnap kimarad
+            if (!pihenoNapE(d0)) { napok.push(new Date(d0)); db++; }
             d0 = napPlusz(d0, 1);
           } else {
             napok.push(new Date(d0)); db++;
@@ -1650,8 +1656,8 @@ function sorozatOsszegzo(kesz, utkozott, egyebHiba) {
       <p><strong>${kesz.length} alkalom felvéve:</strong><br>
         <span class="halk">${kesz.map(rovidNap).join(', ')}</span></p>
       ${unnepre.length ? `<p class="modalis-figyelmeztet" style="margin-top:.6rem">
-        ${unnepre.length} alkalom munkaszüneti napra esik
-        (${unnepre.map(d => `${rovidNap(d)} — ${esc(unnepNev(d))}`).join(', ')}).
+        ${unnepre.length} alkalom munkaszüneti napra vagy pihenőnapra esik
+        (${unnepre.map(d => `${rovidNap(d)} — ${esc(napJelleg(d).cimke || 'pihenőnap')}`).join(', ')}).
         Ha ezek nem lesznek megtartva, töröld őket egyenként a naptárban.</p>` : ''}
       ${utkozott.length ? `<p><strong>${utkozott.length} alkalom kimaradt</strong>, mert a terem
         akkor már foglalt volt:<br><span class="halk">${utkozott.map(rovidNap).join(', ')}</span></p>
@@ -1846,7 +1852,9 @@ function eszkozSzurt() {
     if (!keres && !sz.kat.has(e.kategoria)) return false;
     if (sz.room === 'nincs' && e.room_id) return false;
     if (sz.room && sz.room !== 'nincs' && e.room_id !== Number(sz.room)) return false;
-    if (sz.allapot && e.allapot !== sz.allapot) return false;
+    if (sz.allapot === 'javitas_osszes') {
+      if (!['javitasra_var', 'javitas_alatt'].includes(e.allapot)) return false;
+    } else if (sz.allapot && e.allapot !== sz.allapot) return false;
     if (keres) {
       const hol = normal([e.nev, e.nev2, e.leltarszam, e.gyari_sz, e.eszkoz_sz, e.kinel,
         e.hely_szoveg, e.megjegyzes, KATEGORIAK[e.kategoria]].filter(Boolean).join(' '));
@@ -1883,7 +1891,8 @@ function eszkozokHtml() {
       <span class="kpi-cimke">Terem nélkül</span>
       <span class="kpi-ertek" data-kpi="nincshely">${nincsHely}</span>
       <span class="kpi-alsor">nincs teremhez sorolva</span></button>
-    <button class="kpi kpi-gomb" data-kpi-szuro="javitas" title="Csak a javításra várók">
+    <button class="kpi kpi-gomb" data-kpi-szuro="javitas"
+      title="Csak a javításra váró vagy javítás alatt lévő tételek">
       <span class="kpi-cimke">Javítás</span>
       <span class="kpi-ertek" data-kpi="javitas">${gond}</span>
       <span class="kpi-alsor">javításra vár vagy javítás alatt</span></button>
@@ -1913,6 +1922,7 @@ function eszkozokHtml() {
     </select>
     <select id="esz-allapot" aria-label="Szűrés állapotra" style="width:auto">
       <option value="">minden állapot</option>
+      <option value="javitas_osszes" ${sz.allapot === 'javitas_osszes' ? 'selected' : ''}>javításra vár vagy javítás alatt</option>
       ${Object.entries(ALLAPOTOK).map(([k, v]) =>
         `<option value="${k}" ${sz.allapot === k ? 'selected' : ''}>${esc(v.nev)}</option>`).join('')}
     </select>
@@ -1972,7 +1982,10 @@ function eszkozokHtml() {
   ${inaktivDb ? `
   <div class="kartya nem-hasznalt-blokk">
     <div class="kartya-fej">
-      <h2>Nem használt tételek <span class="jelzo jelzo-szurke">${inaktivDb} db</span>
+      <h2>Nem használt tételek <span class="jelzo jelzo-szurke">${
+        sz.inaktiv && inaktivSzurt.length !== inaktivDb
+          ? `${inaktivSzurt.length} a ${inaktivDb}-ből a szűrés szerint`
+          : `${inaktivDb} db`}</span>
         ${sugoJel('Ezek nem törlődtek, csak kikerültek a használatban lévők közül: a leltárban és a naplóban megmaradnak, és a „Visszatesz” gombbal bármikor visszakerülnek.')}</h2>
       <button class="btn btn-kis" data-inaktiv-nyit>${sz.inaktiv ? 'Elrejtés' : 'Megnézem'}</button>
     </div>
@@ -2031,7 +2044,14 @@ function eszkozokKotes() {
     if (A.eszkSzuro.kat.has(k)) A.eszkSzuro.kat.delete(k); else A.eszkSzuro.kat.add(k);
     lapKirajzol();
   });
-  $('[data-inaktiv]', tart).onclick = () => { A.eszkSzuro.inaktiv = !A.eszkSzuro.inaktiv; lapKirajzol(); };
+  $('[data-inaktiv]', tart).onclick = () => {
+    if (!A.eszkSzuro.inaktiv && !A.eszkozok.some(e => e.aktiv === false)) {
+      pirit('Most nincs egyetlen „nem használt” tétel sem. A listában a Kivesz gombbal tehetsz ide egyet.', '');
+      return;
+    }
+    A.eszkSzuro.inaktiv = !A.eszkSzuro.inaktiv;
+    lapKirajzol();
+  };
   $('#esz-terem', tart).onchange = e => { A.eszkSzuro.room = e.target.value; lapKirajzol(); };
   $('#esz-allapot', tart).onchange = e => { A.eszkSzuro.allapot = e.target.value; lapKirajzol(); };
   $('[data-csv]', tart).onclick = eszkozCsv;
@@ -2040,11 +2060,15 @@ function eszkozokKotes() {
   $$('[data-kpi-szuro]', tart).forEach(b => b.onclick = () => {
     const ertek = b.dataset.kpiSzuro;
     const sz = A.eszkSzuro;
+    if (ertek === 'inaktiv' && !A.eszkozok.some(e => e.aktiv === false)) {
+      pirit('Most nincs egyetlen „nem használt” tétel sem. A listában a Kivesz gombbal tehetsz ide egyet.', '');
+      return;
+    }
     sz.szo = ''; sz.room = ''; sz.allapot = ''; sz.inaktiv = false;
     sz.kat = new Set(Object.keys(KATEGORIAK));
     if (ertek.startsWith('terem:')) sz.room = ertek.split(':')[1];
     else if (ertek === 'nincs') sz.room = 'nincs';
-    else if (ertek === 'javitas') sz.allapot = 'javitasra_var';
+    else if (ertek === 'javitas') sz.allapot = 'javitas_osszes';
     else if (ertek === 'inaktiv') {
       sz.inaktiv = true;
       setTimeout(() => {
@@ -2073,8 +2097,11 @@ function eszkozokKotes() {
        visszatehető.`, 'Kivesz', () => eszkozAktivValt(e.id, false));
   });
 
-  $$('[data-visszatesz]', tart).forEach(b => b.onclick = () =>
-    eszkozAktivValt(Number(b.dataset.visszatesz), true));
+  $$('[data-visszatesz]', tart).forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await eszkozAktivValt(Number(b.dataset.visszatesz), true); }
+    catch (e) { hibaKi(e); b.disabled = false; }
+  });
 }
 
 /* használatban / nem használt átállítása egy kattintással */
@@ -2939,7 +2966,9 @@ function sugoHtml() {
         csoport ugyanoda kerülni.</li>
       <li>Az <strong>ismétlés</strong> (heti, kétheti, munkanapokon) minden alkalmat külön foglalásként
         vesz fel, így egyet-egyet külön is módosíthatsz vagy törölhetsz. A már foglalt időket kihagyja,
-        és a végén felsorolja, mi maradt ki. A munkaszüneti napokat nem hagyja ki.</li>
+        és a végén felsorolja, mi maradt ki. A „munkanapokon” a hivatalos munkarendet követi (a
+        munkaszüneti napok és a pihenőnapok kimaradnak, a ledolgozós szombat munkanap); a heti és
+        kétheti ismétlésnél az ünnepre eső alkalmakat a végén jelezzük.</li>
       <li>A saját foglalásaidat arany bal szegély jelöli a rácsban, a listában „saját” címke.
         A sajátodat te módosíthatod; bárki foglalását a titkárság és a rendszergazda.</li>
       <li><strong>Lemondás</strong>: a foglalás áthúzva látszik tovább (tehát nyoma marad), de a terem
@@ -2951,6 +2980,8 @@ function sugoHtml() {
 
     <h3>Nézetek</h3>
     <ul class="sugo-lista">
+      <li><strong>Hónap</strong>: az egész hónap egy lapon, naponta a foglalások felsorolásával —
+        ehhez jó, ha valaki hetekre előre tervez. Egy napra koppintva a napi beosztás nyílik meg.</li>
       <li><strong>Hét</strong>: egy hét, a napok oszlopokban, a termek színnel jelölve — így egy
         pillantással látszik a teljes heti kép. A piros vonal a mostani időt mutatja.</li>
       <li><strong>Nap</strong>: egy nap, a termek külön oszlopban, óra szerinti beosztással.</li>
