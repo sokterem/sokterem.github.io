@@ -89,6 +89,9 @@ const A = {
   fiokKereso: '',
   eszkSzuro: { szo: '', kat: new Set(['oktatasi', 'it']), room: '', allapot: '', inaktiv: false },
   naploSzuro: { tipus: '', ki: '', szo: '' },
+  naploTalalat: null,      // a betöltött naplósorok gyorsítótára (keresés közben nem kérdezünk újra)
+  naploKulcs: '',
+  naploEmberek: [],
   utolsoTevekenyseg: Date.now(),
   utolsoFrissites: null,
   frissitesHiba: false,
@@ -109,7 +112,7 @@ const TIPUSOK = {
   // a jel azért kell, hogy ne csak a szín hordozza az információt (színtévesztés, fekete-fehér nyomtatás)
   oktatas:    { nev: 'Oktatás',      szin: '#232f61', jel: 'O' },
   vizsga:     { nev: 'Vizsga',       szin: '#b3172c', jel: 'V' },
-  szimulacio: { nev: 'Szimuláció',   szin: '#008c49', jel: 'SZ' },
+  szimulacio: { nev: 'Szimuláció',   szin: '#007a3f', jel: 'SZ' },
   megbeszeles:{ nev: 'Megbeszélés',  szin: '#3d4584', jel: 'M' },
   egyeb:      { nev: 'Egyéb',        szin: '#5c6478', jel: '·' },
 };
@@ -124,7 +127,7 @@ const ALLAPOTOK = {
 const KATEGORIAK = { oktatasi: 'Oktatási eszköz', it: 'IT / technika', butor: 'Bútor', egyeb: 'Egyéb' };
 const SZEREPEK = { admin: 'rendszergazda', titkarsag: 'titkárság', oktato: 'oktató' };
 const SZINEK = [
-  ['#232f61', 'Semmelweis kék'], ['#008bd2', 'azúrkék'], ['#008c49', 'zöld'],
+  ['#232f61', 'Semmelweis kék'], ['#0071ad', 'azúrkék'], ['#007a3f', 'zöld'],
   ['#3d4584', 'alnyomat-kék'], ['#b3a16e', 'sötét arany'], ['#b3172c', 'piros'],
 ];
 
@@ -176,13 +179,18 @@ function admin() { return !!A.profil && A.profil.szerep === 'admin'; }
 
 /* magyarázó kérdőjel: koppintásra és fókuszra is megjelenik */
 function sugoJel(szoveg) {
+  const id = 'sugo-' + (sugoJel._szamlalo = (sugoJel._szamlalo || 0) + 1);
   return `<button type="button" class="sugo-jel" data-sugo="${esc(szoveg)}"
-    aria-label="Magyarázat: ${esc(szoveg)}">?</button>`;
+    aria-label="Magyarázat" aria-describedby="${id}" aria-expanded="false">?</button>
+    <span id="${id}" class="rejtett-szoveg">${esc(szoveg)}</span>`;
 }
 document.addEventListener('click', e => {
   const jel = e.target.closest('.sugo-jel');
   document.querySelectorAll('.sugo-buborek').forEach(b => b.remove());
+  document.querySelectorAll('.sugo-jel[aria-expanded="true"]')
+    .forEach(b => b.setAttribute('aria-expanded', 'false'));
   if (!jel) return;
+  jel.setAttribute('aria-expanded', 'true');
   e.preventDefault();
   e.stopPropagation();
   const b = document.createElement('div');
@@ -200,13 +208,19 @@ document.addEventListener('click', e => {
 });
 
 function pirit(szoveg, fajta = '') {
-  const p = $('#pirit');
-  p.textContent = szoveg;
+  // két külön élő régió: a hibát assertive, a többit polite régió mondja ki.
+  // A szöveg a MÁR látható elembe kerül, különben a felolvasó nem érzékeli.
+  const hiba = fajta === 'hiba';
+  const p = $(hiba ? '#pirit-hiba' : '#pirit');
+  const masik = $(hiba ? '#pirit' : '#pirit-hiba');
+  masik.hidden = true;
+  masik.textContent = '';
+  // előbb láthatóvá tesszük, utána írjuk bele a szöveget — így mondja ki a felolvasó
   p.className = 'pirit ' + fajta;
-  p.setAttribute('aria-live', fajta === 'hiba' ? 'assertive' : 'polite');
   p.hidden = false;
+  p.textContent = szoveg;
   clearTimeout(pirit._t);
-  pirit._t = setTimeout(() => { p.hidden = true; }, fajta === 'hiba' ? 8000 : 3200);
+  pirit._t = setTimeout(() => { p.hidden = true; p.textContent = ''; }, hiba ? 8000 : 3200);
 }
 
 /* dátum-segédek — mind helyi idő szerint */
@@ -321,15 +335,18 @@ function modalis({ cim, torzs, lab, szeles, zarKerdes, verem }) {
   }
   const h = document.createElement('div');
   h.className = 'modalis-hatter';
-  h.innerHTML = `<div class="modalis" role="dialog" aria-modal="true" aria-label="${esc(cim)}"
+  const cimId = 'modalis-cim-' + (modalis._szamlalo = (modalis._szamlalo || 0) + 1);
+  h.innerHTML = `<div class="modalis" role="dialog" aria-modal="true" aria-labelledby="${cimId}"
       ${szeles ? 'style="max-width:860px"' : ''}>
-    <div class="modalis-fej"><h2>${esc(cim)}</h2>
+    <div class="modalis-fej"><h2 id="${cimId}">${esc(cim)}</h2>
       <button class="zar-gomb" aria-label="Bezárás">×</button></div>
     <div class="modalis-torzs">${torzs}</div>
     ${lab ? `<div class="modalis-lab">${lab}</div>` : ''}
   </div>`;
   $('#modalis-tarto').appendChild(h);
   modalisAllapot = { elem: h, honnan, zarKerdes: !!zarKerdes, ment: false };
+  hatterInert(true);
+  document.body.classList.add('modalis-nyitva');   // a lap ne görögjön az ablak alatt
 
   h.addEventListener('mousedown', e => { if (e.target === h) zarKerdessel(); });
   $('.zar-gomb', h).addEventListener('click', zarKerdessel);
@@ -352,6 +369,14 @@ function modalis({ cim, torzs, lab, szeles, zarKerdes, verem }) {
 
 function modalisNyitva() { return !!$('.modalis-hatter'); }
 
+/* a modális alatti felület ne legyen se kattintható, se bejárható */
+function hatterInert(be) {
+  const app = $('#app');
+  if (!app) return;
+  if (be) app.setAttribute('inert', '');
+  else app.removeAttribute('inert');
+}
+
 /* A legfelső réteg bezárása. Ha van alatta réteg (megerősítő ablakból való
    visszalépés), az visszatér a beírt adatokkal együtt. */
 function zarModalis(csendben) {
@@ -367,6 +392,8 @@ function zarModalis(csendben) {
     return;
   }
   $('#modalis-tarto').innerHTML = '';
+  hatterInert(false);
+  document.body.classList.remove('modalis-nyitva');
   if (!csendben && allapot && allapot.honnan && document.body.contains(allapot.honnan)) {
     try { allapot.honnan.focus(); } catch (e) { /* ha eltűnt, nem gond */ }
   }
@@ -378,6 +405,8 @@ function zarMindenModalist() {
   modalisVerem.length = 0;
   modalisAllapot = null;
   $('#modalis-tarto').innerHTML = '';
+  hatterInert(false);
+  document.body.classList.remove('modalis-nyitva');
 }
 
 /* bezárás félig kitöltött űrlapnál rákérdez */
@@ -402,7 +431,24 @@ function urlapErintve(h) {
 
 document.addEventListener('keydown', e => {
   A.utolsoTevekenyseg = Date.now();
-  if (e.key === 'Escape' && modalisNyitva()) { zarKerdessel(); return; }
+  if (e.key === 'Escape') {
+    if (modalisNyitva()) { zarKerdessel(); return; }
+    const harang = $('#harang-lista'), menu = $('#felh-menu');
+    let zart = false;
+    if (harang && !harang.hidden) {
+      harang.hidden = true;
+      $('#harang-gomb').setAttribute('aria-expanded', 'false');
+      $('#harang-gomb').focus();
+      zart = true;
+    }
+    if (menu && !menu.hidden) {
+      menu.hidden = true;
+      $('#felh-gomb').setAttribute('aria-expanded', 'false');
+      $('#felh-gomb').focus();
+      zart = true;
+    }
+    if (zart) return;
+  }
   // billentyűparancsok csak a naptárban, és csak ha nem mezőben gépelünk
   if (modalisNyitva() || A.lap !== 'naptar') return;
   const cel = e.target;
@@ -541,14 +587,20 @@ function belepesLap(hiba) {
   $('#belepes').hidden = false;
   const uzenet = hiba || sessionStorage.getItem('sokterem-uzenet');
   sessionStorage.removeItem('sokterem-uzenet');
-  if (uzenet) { $('#be-hiba').textContent = uzenet; $('#be-hiba').hidden = false; }
-  else { $('#be-hiba').hidden = true; }
+  const hibaElem = $('#be-hiba');
+  if (uzenet) {
+    hibaElem.hidden = false;               // előbb láthatóvá tesszük,
+    hibaElem.textContent = uzenet;         // utána írjuk bele — így hangzik el
+  } else {
+    hibaElem.hidden = true;
+    hibaElem.textContent = '';
+  }
 }
 
 $('#belepes-form').addEventListener('submit', async e => {
   e.preventDefault();
   const gomb = $('#be-gomb');
-  gomb.disabled = true; gomb.textContent = 'Belépés…';
+  gomb.disabled = true; gomb.setAttribute('aria-busy', 'true'); gomb.textContent = 'Belépés…';
   $('#be-hiba').hidden = true;
   A.belepesFut = true;
   try {
@@ -560,7 +612,7 @@ $('#belepes-form').addEventListener('submit', async e => {
     belepesLap(hibaSzoveg(err));
   } finally {
     A.belepesFut = false;
-    gomb.disabled = false; gomb.textContent = 'Belépés';
+    gomb.disabled = false; gomb.removeAttribute('aria-busy'); gomb.textContent = 'Belépés';
   }
 });
 
@@ -602,8 +654,8 @@ $('#jelszocsere-form').addEventListener('submit', async e => {
   const a = $('#jc-1').value, b = $('#jc-2').value;
   const hiba = $('#jc-hiba');
   hiba.hidden = true;
-  if (a !== b) { hiba.textContent = 'A két jelszó nem egyezik.'; hiba.hidden = false; return; }
-  if (!JELSZO_SZABALY.test(a)) { hiba.textContent = JELSZO_SZOVEG; hiba.hidden = false; return; }
+  if (a !== b) { hiba.hidden = false; hiba.textContent = 'A két jelszó nem egyezik.'; return; }
+  if (!JELSZO_SZABALY.test(a)) { hiba.hidden = false; hiba.textContent = JELSZO_SZOVEG; return; }
   const gomb = $('#jelszocsere-form button[type=submit]');
   gomb.disabled = true;
   try {
@@ -615,7 +667,7 @@ $('#jelszocsere-form').addEventListener('submit', async e => {
     A.visszaallitas = false;
     pirit('Az új jelszó elmentve.', 'siker');
     await appMegjelenit();
-  } catch (err) { hiba.textContent = hibaSzoveg(err); hiba.hidden = false; }
+  } catch (err) { hiba.hidden = false; hiba.textContent = hibaSzoveg(err); }
   finally { gomb.disabled = false; }
 });
 
@@ -672,11 +724,16 @@ async function appMegjelenit() {
   $('#app').hidden = false;
   $('#lablec-verzio').textContent = VERZIO;
   $('#felh-nev').textContent = A.profil.nev;
+  $('#felh-gomb').title = A.profil.nev;      // a gomb szűk helyen rövidít, itt a teljes név
   menuEpit();
   lapNyit(location.hash.replace('#', '') || 'naptar');
 
   if (!appMegjelenit._idozitok) {
     appMegjelenit._idozitok = true;
+    window.addEventListener('popstate', () => {
+      const cel = location.hash.replace('#', '') || 'naptar';
+      if (cel !== A.lap) lapNyit(cel);
+    });
     setInterval(hatterFrissites, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) hatterFrissites(); });
     setInterval(() => {
@@ -792,15 +849,31 @@ function honapRacsKezdet(d) {
   return hetKezdet(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
+/* A Supabase egy kérésre legfeljebb ennyi sort ad — a .limit() ezt nem írja felül,
+   ezért mindenhol oldalanként olvasunk, különben csendben csonkul az adat. */
+const OLDAL_MERET = 1000;
+
+async function oldalakban(kerdesEpito) {
+  const sorok = [];
+  for (let eltolas = 0; eltolas < 30 * OLDAL_MERET; eltolas += OLDAL_MERET) {
+    const { data, error } = await kerdesEpito().range(eltolas, eltolas + OLDAL_MERET - 1);
+    if (error) throw error;
+    sorok.push(...(data || []));
+    if (!data || data.length < OLDAL_MERET) break;
+  }
+  return sorok;
+}
+
 async function foglalasokBetolt(jel) {
+  // minden hívó a saját jelét kapja: a háttérfrissítés válasza sem írhatja felül azt,
+  // amit a felhasználó közbeni lapozása már betöltött
+  const sajatJel = jel === undefined ? A.betoltJel : jel;
   const [k, v] = latoszog();
-  const { data, error } = await sb.from('bookings').select('*')
+  const sorok = await oldalakban(() => sb.from('bookings').select('*')
     .lt('kezdet', v.toISOString()).gt('veg', k.toISOString())
-    .order('kezdet');
-  if (error) throw error;
-  // ha közben továbbléptek a naptárban, ez a válasz elavult: ne írjuk be
-  if (jel !== undefined && jel !== A.betoltJel) return;
-  A.foglalasok = (data || []).map(f => ({ ...f, _k: new Date(f.kezdet), _v: new Date(f.veg) }));
+    .order('kezdet').order('id'));
+  if (sajatJel !== A.betoltJel) return;
+  A.foglalasok = sorok.map(f => ({ ...f, _k: new Date(f.kezdet), _v: new Date(f.veg) }));
 }
 
 async function ertesitesekBetolt() {
@@ -875,9 +948,8 @@ function harangLista() {
 }
 
 async function eszkozokBetolt() {
-  const { data, error } = await sb.from('equipment').select('*').order('nev').order('leltarszam');
-  if (error) throw error;
-  A.eszkozok = data || [];
+  A.eszkozok = await oldalakban(() => sb.from('equipment').select('*')
+    .order('nev').order('leltarszam').order('id'));
 }
 
 function foglalasLenyomat() {
@@ -889,6 +961,13 @@ function eszkozLenyomat() {
 
 async function hatterFrissites() {
   if (modalisNyitva()) return;
+  // az időzítő és a visibilitychange ugyanabban a másodpercben is beeshet
+  if (hatterFrissites._fut) return;
+  hatterFrissites._fut = true;
+  try { await hatterFrissitesBelso(); } finally { hatterFrissites._fut = false; }
+}
+
+async function hatterFrissitesBelso() {
   const fokusz = document.activeElement;
   const gepel = fokusz && fokusz.closest && fokusz.closest('#tartalom') &&
     ['INPUT', 'TEXTAREA', 'SELECT'].includes(fokusz.tagName);
@@ -910,7 +989,10 @@ async function hatterFrissites() {
     if (A.frissitesHiba) { A.frissitesHiba = false; }
     if (gepel) return;                                   // gépelés közben nem rajzolunk újra
     if (['naptar', 'foglalasaim', 'termek'].includes(A.lap)) {
-      if (elotteF !== foglalasLenyomat()) lapKirajzol();
+      // a „most" sáv és a piros mostani-idő vonal a kirajzolás idejét mutatja, ezért a mai
+      // időszakot akkor is újra kell rajzolni, ha egyetlen foglalás sem változott
+      const idoErzekeny = A.lap === 'naptar' && maiIdoszak();
+      if (idoErzekeny || elotteF !== foglalasLenyomat()) lapKirajzol();
     } else if (A.lap === 'eszkozok' && elotteE !== null && elotteE !== eszkozLenyomat()) {
       // csak tényleges változásnál rajzolunk újra, hogy ne ugorjon el a görgetés
       const gorgetes = $('.tabla-tarto') ? $('.tabla-tarto').scrollTop : 0;
@@ -932,8 +1014,10 @@ function lapNyit(lap) {
   const bejegyzes = LAPOK.find(([k]) => k === lap);
   if (bejegyzes && !bejegyzes[2]()) lap = 'naptar';       // jogosultság a címsorból se legyen megkerülhető
   if (!bejegyzes && !MENU_NELKULI_LAPOK.includes(lap)) lap = 'naptar';
+  if (lap !== A.lap) A.naploTalalat = null;      // lapváltásnál a napló újra a szerverről jön
   A.lap = lap;
-  history.replaceState(null, '', '#' + lap);
+  // a böngésző Vissza gombja a lapok között lépjen, ne ki az appból
+  if (location.hash.replace('#', '') !== lap) history.pushState({ lap }, '', '#' + lap);
   $$('#menu button').forEach(b => {
     const aktiv = b.dataset.lap === lap;
     b.classList.toggle('aktiv', aktiv);
@@ -1007,23 +1091,26 @@ function napokAMostaniNezetben() {
 
 /* A rács idősávja a megjelenített foglalásokhoz igazodik, hogy egy kora reggeli
    vagy késő esti foglalás se csúszhasson ki a nézetből. */
-function racsSav(napok) {
+function racsSavSzeletekbol(szeletCsoportok) {
   let kezd = ALAP_KEZD, veg = ALAP_VEG;
-  napok.forEach(d => {
-    napiSzeletek(d).forEach(sz => {
+  szeletCsoportok.forEach(csoport => {
+    csoport.forEach(sz => {
       kezd = Math.min(kezd, Math.floor(sz.kezdPerc / 60) * 60);
       veg = Math.max(veg, Math.ceil(sz.vegPerc / 60) * 60);
     });
   });
   return { kezd: Math.max(0, kezd), veg: Math.min(24 * 60, Math.max(veg, kezd + 120)) };
 }
+function racsSav(napok) {
+  return racsSavSzeletekbol(napok.map(d => napiSzeletek(d)));
+}
 
 /* egy napra eső szeletek: az éjfélen átnyúló foglalás minden érintett napon megjelenik */
 function napiSzeletek(nap, teremId) {
   const napKezd = kezdoNap(nap), napVeg = napPlusz(napKezd, 1);
-  const lathato = lathatoTermek();
+  const lathatoId = teremId ? null : new Set(lathatoTermek().map(t => t.id));
   return A.foglalasok
-    .filter(f => (teremId ? f.room_id === teremId : lathato.some(t => t.id === f.room_id)))
+    .filter(f => (teremId ? f.room_id === teremId : lathatoId.has(f.room_id)))
     .filter(f => f._k < napVeg && f._v > napKezd)
     .map(f => ({
       f,
@@ -1046,7 +1133,8 @@ function teremMostiAllapota(teremId, most = new Date()) {
   if (fut) {
     const kovetkezo = mai.find(f => f._k >= fut._v && f._k - fut._v < 30 * 60000);
     return { szabad: false, eddig: fut._v, mi: fut.cim, ki: fut.oktato || fut.szerzo_nev,
-      lancolt: !!kovetkezo };
+      // a következő foglalás jelzése: „utána rögtön jön a következő"
+      lancolt: !!kovetkezo, kovetkezoCim: kovetkezo ? kovetkezo.cim : null };
   }
   const kovetkezo = mai.find(f => f._k > most);
   return { szabad: true, eddig: kovetkezo ? kovetkezo._k : null,
@@ -1179,7 +1267,10 @@ function munkarendSav() {
 /* ─── heti rács: oszlop = nap, benne a termek színes blokkjai */
 function hetiRacsHtml() {
   const napok = napokAMostaniNezetben();
-  const sav = racsSav(napok);
+  // egy napra egyszer számolunk szeleteket: eddig a racsSav, az oszlopok és az
+  // ürességellenőrzés háromszor futtatta végig ugyanazt
+  const szeletek = napok.map(d => napiSzeletek(d));
+  const sav = racsSavSzeletekbol(szeletek);
   const magas = (sav.veg - sav.kezd) / 60 * ORA_PX;
 
   let fej = `<div class="ido-sav sarok"></div>`;
@@ -1191,16 +1282,16 @@ function hetiRacsHtml() {
       ${j.cimke ? `<span class="unnep-nev">${esc(j.cimke)}</span>` : ''}</div>`;
   });
 
-  const oszlopok = napok.map(d => {
+  const oszlopok = napok.map((d, i) => {
     const j = napJelleg(d);
     const piheno = pihenoNapE(d);
     return `<div class="nap-oszlop kattinthato ${piheno ? 'nem-munkanap' : ''} jelleg-${j.fajta}
       ${maE(d) ? 'ma' : ''}"
       data-nap="${ymd(d)}" style="height:${magas}px">${mostVonal(d, sav)}${
-      esemenyekHtml(napiSzeletek(d), d, sav, true)}</div>`;
+      esemenyekHtml(szeletek[i], d, sav, true)}</div>`;
   }).join('');
 
-  const ures = !napok.some(d => napiSzeletek(d).length);
+  const ures = !szeletek.some(sz => sz.length);
   return `${ures ? `<p class="ures-jelzes">Ezen a héten még nincs foglalás ezekben a termekben —
     kattints a rácsban a kívánt napra és órára, és már nyílik is az űrlap.</p>` : ''}
     <div class="racs-tarto"><div class="racs"
@@ -1326,11 +1417,13 @@ function honapRacsHtml() {
   const honap = A.nap.getMonth();
   const fej = NAPROVID.map(n => `<div class="honap-fej">${n}</div>`).join('');
 
+  // a látható termeket EGYSZER számoljuk ki: eddig minden foglalásnál újra lefutott
+  // (42 nap × 1000 foglalás = 42 000 tömbépítés kirajzolásonként)
+  const lathatoId = new Set(lathatoTermek().map(t => t.id));
   const cellak = napok.map(d => {
     const napKezd = kezdoNap(d), napVeg = napPlusz(napKezd, 1);
     const lista = A.foglalasok
-      .filter(f => lathatoTermek().some(t => t.id === f.room_id))
-      .filter(f => f._k < napVeg && f._v > napKezd)
+      .filter(f => lathatoId.has(f.room_id) && f._k < napVeg && f._v > napKezd)
       .sort((a, b) => a._k - b._k);
     const j = napJelleg(d);
     const masHonap = d.getMonth() !== honap;
@@ -1363,7 +1456,7 @@ function honapRacsHtml() {
 
   const uresHonap = !napok.some(d => {
     const nk = kezdoNap(d), nv = napPlusz(nk, 1);
-    return A.foglalasok.some(f => lathatoTermek().some(t => t.id === f.room_id) && f._k < nv && f._v > nk);
+    return A.foglalasok.some(f => lathatoId.has(f.room_id) && f._k < nv && f._v > nk);
   });
   return `${uresHonap ? `<p class="ures-jelzes">Ebben a hónapban még nincs foglalás —
     kattints egy napra, és megnyílik a napi beosztás, ahol foglalni tudsz.</p>` : ''}
@@ -1375,14 +1468,15 @@ function listaHtml() {
   const napok = A.nezet === 'nap' ? [kezdoNap(A.nap)] : napokAMostaniNezetben();
   const k = napok[0], v = napPlusz(napok[napok.length - 1], 1);
   const keres = normal(A.kereso.trim());
+  const lathatoId = new Set(lathatoTermek().map(t => t.id));   // egyszer, ne minden foglalásnál
 
-  if (!lathatoTermek().length) {
+  if (!lathatoId.size) {
     return `<div class="kartya ures">Egy terem sincs bekapcsolva a nézetben.
       Kapcsolj be legalább egyet a fenti szűrőgombokkal.</div>`;
   }
   if (keres) {
     const talalat = A.foglalasok
-      .filter(f => lathatoTermek().some(t => t.id === f.room_id))
+      .filter(f => lathatoId.has(f.room_id))
       .filter(f => normal([f.cim, f.oktato, f.szerzo_nev, f.leiras, f.eszkozigeny,
         teremNev(f.room_id), (TIPUSOK[f.tipus] || {}).nev].filter(Boolean).join(' ')).includes(keres))
       .sort((a, b) => a._k - b._k);
@@ -1390,14 +1484,22 @@ function listaHtml() {
       return `<div class="kartya ures">Nincs találat a betöltött időszakban
         (kb. két hét visszamenőleg és hat hét előre).</div>`;
     }
+    // egy naphoz EGY fejléc tartozzon: korábban minden találat kapott egyet, ezért
+    // ugyanaz a dátum annyiszor jelent meg, ahány foglalás volt aznap
+    const naponta = new Map();
+    talalat.forEach(f => {
+      const kulcs = ymd(f._k);
+      if (!naponta.has(kulcs)) naponta.set(kulcs, []);
+      naponta.get(kulcs).push(f);
+    });
     return `<p class="sugoszoveg">${talalat.length} találat a betöltött időszakban.</p>
-      <div class="agenda">${talalat.map(f =>
-        `<div class="agenda-nap"><div class="agenda-nap-fej">${esc(napCimke(f._k))}</div>${agendaSor(f)}</div>`
+      <div class="agenda">${[...naponta.values()].map(sorok =>
+        `<div class="agenda-nap"><div class="agenda-nap-fej">${esc(napCimke(sorok[0]._k))}</div>${
+          sorok.map(f => agendaSor(f)).join('')}</div>`
       ).join('')}</div>`;
   }
 
-  const lista = A.foglalasok.filter(f => f._v > k && f._k < v &&
-    lathatoTermek().some(t => t.id === f.room_id));
+  const lista = A.foglalasok.filter(f => f._v > k && f._k < v && lathatoId.has(f.room_id));
   if (!lista.length) {
     return `<div class="kartya ures">Ebben az időszakban nincs foglalás.
       A „+ Új foglalás” gombbal tudsz felvenni egyet.</div>`;
@@ -1422,7 +1524,9 @@ function listaHtml() {
   }).join('') + `</div>`;
 }
 
-function agendaSor(f) {
+/* datummal=true: ahol nincs napi fejléc a sor fölött (Foglalásaim lap), ott a dátum
+   is kell — nélküle csak az óra látszott, és nem lehetett megmondani, melyik napról van szó. */
+function agendaSor(f, datummal) {
   const enyem = f.szerzo_id === A.user.id;
   return `<button class="agenda-sor ${f.allapot === 'lemondva' ? 'lemondva' : ''} ${enyem ? 'enyem' : ''}"
     data-foglalas="${f.id}" style="border-left-color:${enyem ? 'var(--arany-sotet)' : teremSzin(f.room_id)}">
@@ -1430,7 +1534,8 @@ function agendaSor(f) {
       esc((TIPUSOK[f.tipus] || TIPUSOK.egyeb).jel)}</span> ${idoSzoveg(f._k, f._v)}</span>
     <span class="agenda-fo">
       <span class="agenda-cim">${esc(f.cim)}</span>
-      <span class="agenda-meta">${esc(teremNev(f.room_id))} · ${esc((TIPUSOK[f.tipus] || {}).nev || '')}${
+      <span class="agenda-meta">${datummal ? esc(napCimke(f._k)) + ' · ' : ''}${
+        esc(teremNev(f.room_id))} · ${esc((TIPUSOK[f.tipus] || {}).nev || '')}${
         f.oktato ? ' · tartja: ' + esc(f.oktato) : ''}${f.letszam != null ? ' · ' + f.letszam + ' fő' : ''}</span>
     </span>
     <span class="agenda-jel">
@@ -1514,9 +1619,19 @@ function naptarKotes() {
   if (racs) {
     if (A.racsElsoRajz) {
       A.racsElsoRajz = false;
-      const sav = racsSav(napokAMostaniNezetben());
+      const napok = napokAMostaniNezetben();
+      const sav = racsSav(napok);
       const p = percbe(new Date());
-      if (p > sav.kezd + 60) racs.scrollTop = (p - sav.kezd - 60) / 60 * ORA_PX;
+      let cel = (p - sav.kezd - 60) / 60 * ORA_PX;
+      // a munkanap kezdete (8:00) mindig látszódjon: enélkül délután a rács 10-11 óránál
+      // nyílt, és úgy tűnt, korábbra nem is lehet foglalni
+      cel = Math.min(cel, (8 * 60 - sav.kezd) / 60 * ORA_PX);
+      // és a megjelenített napok legkorábbi foglalása se csúszhasson a kép fölé
+      const naptol = napok[0], nappal = napPlusz(napok[napok.length - 1], 1);
+      const korai = A.foglalasok.filter(x => x.allapot === 'elfogadva' && x._k >= naptol && x._k < nappal)
+        .reduce((m, x) => Math.min(m, percbe(x._k)), Infinity);
+      if (Number.isFinite(korai)) cel = Math.min(cel, (korai - sav.kezd - 30) / 60 * ORA_PX);
+      racs.scrollTop = Math.max(0, cel);
     } else if (A.racsGorgetes) {
       racs.scrollTop = A.racsGorgetes;
     }
@@ -1699,7 +1814,7 @@ function foglalasaimHtml() {
 
   const blokk = (lista, cim, uresSzoveg) => `
     <div class="kartya"><div class="kartya-fej"><h2>${cim}</h2></div>
-      ${lista.length ? `<div class="agenda">${lista.map(agendaSor).join('')}</div>`
+      ${lista.length ? `<div class="agenda">${lista.map(f => agendaSor(f, true)).join('')}</div>`
                      : `<p class="halk">${uresSzoveg}</p>`}</div>`;
 
   const holnapVeg = napPlusz(kezdoNap(most), 2);
@@ -1708,7 +1823,7 @@ function foglalasaimHtml() {
   const kozeli = mostani.length ? `<div class="kartya kozeli-blokk">
     <div class="kartya-fej"><h2>Ma és holnap</h2>
       <span class="halk">${mostani.length} alkalom</span></div>
-    <div class="agenda">${mostani.map(agendaSor).join('')}</div>
+    <div class="agenda">${mostani.map(f => agendaSor(f, true)).join('')}</div>
   </div>` : '';
 
   return `
@@ -1763,7 +1878,7 @@ function foglalasModalis(f, elo) {
             t.ferohely ? ` (${t.ferohely} fő)` : ''}</option>`).join('')}</select></div>
       <div><span class="cimke-sor"><label for="fm-tipus">Típus</label>${sugoJel('Csak jelölés, hogy egy pillantással látszódjon, mi történik a teremben. A napi nézetben a blokk színe ezt követi.')}</span>
         <select id="fm-tipus">${Object.entries(TIPUSOK).map(([k, v]) =>
-          `<option value="${k}" ${(f ? f.tipus : (masolat ? masolat.tipus : '')) === k ? 'selected' : ''}>${
+          `<option value="${k}" ${(f ? f.tipus : (masolat ? masolat.tipus : 'oktatas')) === k ? 'selected' : ''}>${
             esc(v.nev)}</option>`).join('')}</select></div>
     </div>
     <p class="terem-allapot" id="fm-szabadsag"></p>
@@ -1784,7 +1899,8 @@ function foglalasModalis(f, elo) {
             : (kezelo() ? '' : A.profil.nev)))}"
           placeholder="${kezelo() ? 'kinek foglalod' : ''}">
         <datalist id="fm-oktato-lista">${
-          (A.profilok.length ? A.profilok : [A.profil]).filter(p => p.aktiv !== false)
+          (A.nevlista.length ? A.nevlista
+            : (A.profilok.length ? A.profilok : [A.profil])).filter(p => p && p.nev)
             .map(p => `<option value="${esc(p.nev)}"></option>`).join('')}</datalist></div>
       <div><label for="fm-letszam">Létszám</label>
         <input type="number" id="fm-letszam" min="0" max="500" value="${
@@ -1800,7 +1916,9 @@ function foglalasModalis(f, elo) {
     ${uj ? `
       <div class="mezo-sor">
         <div><span class="cimke-sor"><label for="fm-ismet">Ismétlés</label>${sugoJel('Minden alkalom önálló foglalás lesz, tehát egyet-egyet külön is módosíthatsz vagy törölhetsz. A már foglalt időket kihagyja, és a végén felsorolja, mi maradt ki. A heti és a kétheti ismétlés a munkaszüneti napokra is felveszi az alkalmat (a végén jelezzük); a „munkanapokon” a hivatalos munkarendet követi, tehát az ünnepek és a pihenőnapok kimaradnak, a ledolgozós szombat viszont munkanap.')}</span><select id="fm-ismet">
-          <option value="0">nem ismétlődik</option>
+          <!-- a "selected" jelölés kell: nélküle az urlapErintve() minden érintetlen
+               új-foglalás űrlapot megkezdettnek látott, és zárásnál rákérdezett -->
+          <option value="0" selected>nem ismétlődik</option>
           <option value="1">minden héten</option>
           <option value="2">kéthetente</option>
           <option value="7">munkanapokon (hivatalos munkarend szerint)</option>
@@ -1834,10 +1952,23 @@ function foglalasModalis(f, elo) {
     <button class="btn btn-fo" data-ment>${uj ? 'Foglalás mentése' : 'Módosítás mentése'}</button>`;
 
   const h = modalis({ cim: uj ? 'Új foglalás' : 'Foglalás módosítása', torzs, lab, zarKerdes: true });
-  const hiba = m => {
+  const hiba = (m, mezoId) => {
     if (!document.body.contains(h)) { pirit(m, 'hiba'); return; }
     const e = $('#fm-hiba', h);
-    e.textContent = m; e.hidden = false;
+    e.hidden = false; e.textContent = m;
+    // a hibás mező kapja meg a jelzést és a fókuszt
+    $$('[aria-invalid]', h).forEach(x => x.removeAttribute('aria-invalid'));
+    if (mezoId) {
+      const mezo = $(mezoId, h);
+      if (mezo) {
+        mezo.setAttribute('aria-invalid', 'true');
+        mezo.setAttribute('aria-describedby', 'fm-hiba');
+        // preventScroll: a fókuszálás ne görgesse el a hibaszöveget (az az űrlap alján van)
+        try { mezo.focus({ preventScroll: true }); } catch (x) { /* nem gond */ }
+      }
+    }
+    // a görgetés MINDIG a fókuszálás után: különben a mezőre ugró görgetés
+    // kitolta a képből a hibaszöveget, és a felhasználó semmit nem látott
     e.scrollIntoView({ block: 'nearest' });
   };
 
@@ -1845,17 +1976,22 @@ function foglalasModalis(f, elo) {
   function allapotNez() {
     const datum = $('#fm-datum', h).value, kezd = $('#fm-kezd', h).value, veg = $('#fm-veg', h).value;
     const jelzo = $('#fm-utkozes', h), fig = $('#fm-figyelmeztet', h), szab = $('#fm-szabadsag', h);
+    const figyelmek = [];        // minden figyelmeztetés megjelenik, nem írják felül egymást
     jelzo.hidden = true; fig.hidden = true; szab.innerHTML = '';
-    if (!datum || !kezd || !veg || percKulonbseg(kezd, veg) <= 0) return;
+    if (!datum || !kezd || !veg) return;
+    if (percKulonbseg(kezd, veg) <= 0) {
+      // eddig némán eltűnt a szabad/foglalt sor, mintha elveszett volna egy elem
+      szab.innerHTML = '<span class="terem-jel ervenytelen">A vége nem lehet a kezdet előtt — '
+        + 'állítsd át, és megmutatom, melyik terem szabad.</span>';
+      return;
+    }
     const k = idopont(datum, kezd), v = idopont(datum, veg);
 
     // óraátállítás: a beírt idő nem is létezik azon a napon
     if (hm(k) !== kezd || hm(v) !== veg) {
-      fig.textContent = 'Ezen a napon ez az időpont az óraátállítás miatt nem létezik. Válassz másik időt.';
-      fig.hidden = false;
+      figyelmek.push('Ezen a napon ez az időpont az óraátállítás miatt nem létezik. Válassz másik időt.');
     } else if (v < new Date()) {
-      fig.textContent = 'Ez az időpont már elmúlt. Felvehető (utólagos rögzítéshez), csak szólok.';
-      fig.hidden = false;
+      figyelmek.push('Ez az időpont már elmúlt. Felvehető (utólagos rögzítéshez), csak szólok.');
     }
 
     const utkozik = t => A.foglalasok.filter(x => x.room_id === t.id && x.allapot === 'elfogadva' &&
@@ -1874,17 +2010,20 @@ function foglalasModalis(f, elo) {
       const utana = A.foglalasok.find(x => x.room_id === valasztott.id && x.allapot === 'elfogadva' &&
         (!f || x.id !== f.id) && Math.abs(x._k - v) < 60000);
       if (elotte || utana) {
-        fig.textContent = elotte && utana
+        figyelmek.push(elotte && utana
           ? 'Közvetlenül előtte és utána is van foglalás — nem marad idő a terem rendbetételére.'
           : elotte ? `Közvetlenül előtte ér véget: ${elotte.cim} (${idoSzoveg(elotte._k, elotte._v)}) — nem marad idő a pakolásra.`
-          : `Közvetlenül utána kezdődik: ${utana.cim} (${idoSzoveg(utana._k, utana._v)}) — érdemes kicsit korábban zárni.`;
-        fig.hidden = false;
+          : `Közvetlenül utána kezdődik: ${utana.cim} (${idoSzoveg(utana._k, utana._v)}) — érdemes kicsit korábban zárni.`);
       }
     }
     const letszam = Number($('#fm-letszam', h).value);
     if (valasztott && valasztott.ferohely && letszam > valasztott.ferohely) {
-      fig.textContent = `${esc(valasztott.kod)} befogadóképessége ${valasztott.ferohely} fő, ` +
-        `te ${letszam} főt írtál be. Felvehető, csak szólok.`;
+      // textContent-be megy, ezért itt NEM kell esc(): az csak „&amp;”-t írna ki
+      figyelmek.push(`${valasztott.kod} befogadóképessége ${valasztott.ferohely} fő, ` +
+        `te ${letszam} főt írtál be. Felvehető, csak szólok.`);
+    }
+    if (figyelmek.length) {
+      fig.textContent = figyelmek.join(' ');
       fig.hidden = false;
     }
     const sajatTerem = valasztott;
@@ -1953,7 +2092,15 @@ function foglalasModalis(f, elo) {
   let elozoKezd = $('#fm-kezd', h).value;
   $('#fm-kezd', h).onchange = () => {
     const hossz = percKulonbseg(elozoKezd, $('#fm-veg', h).value);
-    if (hossz > 0) $('#fm-veg', h).value = idoPlusz($('#fm-kezd', h).value, hossz);
+    if (hossz > 0) {
+      const ujVeg = idoPlusz($('#fm-kezd', h).value, hossz);
+      $('#fm-veg', h).value = ujVeg;
+      // az idoPlusz 23:45-nél megáll: szóljunk, ha ezért rövidült a foglalás
+      if (percKulonbseg($('#fm-kezd', h).value, ujVeg) < hossz) {
+        pirit('A befejezés 23:45-nél nem lehet későbbi, ezért a foglalás rövidebb lett. ' +
+              'Éjfélen átnyúló foglalást nem lehet felvenni.', '');
+      }
+    }
     elozoKezd = $('#fm-kezd', h).value;
     allapotNez();
   };
@@ -2000,14 +2147,15 @@ function foglalasModalis(f, elo) {
       'Törlés', async () => {
         ellenoriz(await sb.from('bookings').delete().eq('id', f.id).select('id'),
           'Ezt a foglalást közben már törölték.');
+        A.sajatFoglalasok = null;
         await foglalasokBetolt(); lapKirajzol(); pirit('Foglalás törölve.', 'siker');
       });
+    // a hiba felszáll a megerosit-hez, így az nem zárja be sikerként az ablakot
     const allapotValt = async (allapot, szoveg) => {
-      try {
-        ellenoriz(await sb.from('bookings').update({ allapot }).eq('id', f.id).select('id'));
-        zarModalis();
-        await foglalasokBetolt(); lapKirajzol(); pirit(szoveg, 'siker');
-      } catch (e) { hiba(hibaSzoveg(e)); }
+      ellenoriz(await sb.from('bookings').update({ allapot }).eq('id', f.id).select('id'));
+      zarModalis();
+      A.sajatFoglalasok = null;
+      await foglalasokBetolt(); lapKirajzol(); pirit(szoveg, 'siker');
     };
     const lemond = $('[data-lemond]', h);
     if (lemond) lemond.onclick = () => megerosit('Foglalás lemondása',
@@ -2015,26 +2163,50 @@ function foglalasModalis(f, elo) {
        <strong>${esc(f.cim)}</strong> · ${esc(napCimke(f._k))} ${idoSzoveg(f._k, f._v)}`,
       'Lemondás', () => allapotValt('lemondva', 'A foglalás lemondva.'), false);
     const vissza = $('[data-visszaall]', h);
-    if (vissza) vissza.onclick = () => allapotValt('elfogadva', 'A foglalás újra érvényes.');
+    if (vissza) vissza.onclick = () => allapotValt('elfogadva', 'A foglalás újra érvényes.')
+      .catch(e => hiba(hibaSzoveg(e)));
   }
 
   $('[data-ment]', h).onclick = async () => {
     const gomb = $('[data-ment]', h);
     $('#fm-hiba', h).hidden = true;
+    // A háttérfrissítés nyitott ablaknál nem fut, ezért a „szabad/foglalt" jelzés annyit
+    // avult, amennyit az űrlap nyitva volt. Mentés előtt egyszer újraolvassuk: így az
+    // ütközés az űrlapon derül ki, kattintható javaslatokkal, nem adatbázis-hibaként.
+    try {
+      await foglalasokBetolt();
+      allapotNez();
+      const utkozesJelzo = $('#fm-utkozes', h);
+      if (utkozesJelzo && !utkozesJelzo.hidden) {
+        // az ütközés-jelzés az űrlap alján van: görgessük oda, és szóljunk is,
+        // különben a Mentés gomb némán nem csinál semmit
+        utkozesJelzo.scrollIntoView({ block: 'nearest' });
+        pirit('Ütközés: ebben a teremben már van foglalás ekkor. Az űrlap alján látod, ' +
+              'melyik, és mit ajánlunk helyette.', 'hiba');
+        return;
+      }
+    } catch (e) { console.error('mentés előtti frissítés:', e); }
     const cim = $('#fm-cim', h).value.trim();
     const datum = $('#fm-datum', h).value;
     const kezd = $('#fm-kezd', h).value;
     const veg = $('#fm-veg', h).value;
-    if (!cim) return hiba('Írd be, mi lesz a teremben.');
-    if (!datum || !kezd || !veg) return hiba('A dátum, a kezdés és a befejezés kötelező.');
-    if (percKulonbseg(kezd, veg) <= 0) return hiba('A befejezés későbbi legyen, mint a kezdés.');
+    if (!cim) return hiba('Írd be, mi lesz a teremben.', '#fm-cim');
+    if (!datum || !kezd || !veg) return hiba('A dátum, a kezdés és a befejezés kötelező.',
+      !datum ? '#fm-datum' : (!kezd ? '#fm-kezd' : '#fm-veg'));
+    if (percKulonbseg(kezd, veg) <= 0) {
+      return hiba('Éjfélen átnyúló foglalást ezen az űrlapon nem lehet felvenni. Vedd fel két ' +
+        'foglalásként (pl. ma 22:00–23:45 és holnap 00:00–01:00), vagy kérd a titkárságtól. ' +
+        'Ha elírás: a befejezés legyen későbbi, mint a kezdés.', '#fm-veg');
+    }
     const letszamSzoveg = $('#fm-letszam', h).value;
     if (letszamSzoveg !== '') {
       const n = Number(letszamSzoveg);
-      if (!Number.isFinite(n) || n < 0 || n > 500) return hiba('A létszám 0 és 500 között lehet.');
+      if (!Number.isFinite(n) || n < 0 || n > 500)
+        return hiba('A létszám 0 és 500 között lehet.', '#fm-letszam');
     }
     if (hm(idopont(datum, kezd)) !== kezd) {
-      return hiba('Ezen a napon ez az időpont az óraátállítás miatt nem létezik. Válassz másik időt.');
+      return hiba('Ezen a napon ez az időpont az óraátállítás miatt nem létezik. Válassz másik időt.',
+        '#fm-kezd');
     }
 
     const alap = {
@@ -2059,10 +2231,17 @@ function foglalasModalis(f, elo) {
         let tovabbiak = 0, tovabbiHiba = 0;
         const sorozatra = $('#fm-sorozatra', h);
         if (sorozatra && sorozatra.checked && f.sorozat_id) {
-          const tovabbi = sorozatTovabbi(f);
-          for (const t of tovabbi) {
-            const { error } = await sb.from('bookings').update(alap).eq('id', t.id);
-            if (error) tovabbiHiba++; else tovabbiak++;
+          // a sorozat további alkalmait a szerverről kérjük: a betöltött időszakon túli
+          // alkalmak egyébként csendben kimaradnának a módosításból
+          const { data: sorozat, error: sorozatHiba } = await sb.from('bookings').select('id')
+            .eq('sorozat_id', f.sorozat_id).gt('kezdet', f.kezdet).order('kezdet');
+          if (sorozatHiba) throw sorozatHiba;
+          for (const t of (sorozat || [])) {
+            // .select('id') nélkül a 0 sort érintő (jogosultság miatt elutasított)
+            // módosítás is sikernek látszana
+            const { data, error } = await sb.from('bookings').update(alap)
+              .eq('id', t.id).select('id');
+            if (error || !data || !data.length) tovabbiHiba++; else tovabbiak++;
           }
         }
         pirit(tovabbiak
@@ -2075,7 +2254,12 @@ function foglalasModalis(f, elo) {
         let alkalom = Math.max(1, Math.min(60, Number($('#fm-alkalom', h).value) || 1));
         const vegDatum = $('#fm-vegdatum', h).value
           ? new Date($('#fm-vegdatum', h).value + 'T23:59:59') : null;
-        if (vegDatum && ismet) alkalom = 60;   // a végdátum zárja le, legfeljebb 60 alkalom
+        if (vegDatum && ismet) {
+          // ha van végdátum, az „Alkalmak száma" mező értéke nem érvényes: a végdátum zár le
+          alkalom = 60;
+          $('#fm-alkalom', h).value = '';
+          $('#fm-alkalom', h).placeholder = 'a végdátum zárja le';
+        }
         const sorozatId = (ismet && alkalom > 1) ? kriptoId() : null;
         const napok = [], kihagyott = [];
         let d0 = new Date(datum + 'T00:00:00');
@@ -2120,6 +2304,7 @@ function foglalasModalis(f, elo) {
         const jelzendo = kesz.some(d => ['munkaszuneti', 'pihenonap'].includes(napJelleg(d).fajta));
         if (utkozott.length || egyebHiba || jelzendo || kihagyott.length) {
           zarModalis();
+          A.sajatFoglalasok = null;      // különben a Foglalásaim lap elavult marad
           await foglalasokBetolt();
           lapKirajzol();
           sorozatOsszegzo(kesz, utkozott, egyebHiba, kihagyott);
@@ -2199,7 +2384,7 @@ function foglalasAdatlap(f) {
   const lab = `
     <button class="btn balra" data-ics1>Naptárfájl (.ics)</button>
     <button class="btn" data-masol>Másolás másik napra</button>
-    ${szerkeszthet && f.sorozat_id && sorozatTovabbi(f).length
+    ${szerkeszthet && f.sorozat_id
       ? '<button class="btn btn-veszes" data-sorozat>Sorozat többi alkalma…</button>' : ''}
     <button class="btn" data-megse>Bezárás</button>
     ${szerkeszthet ? `<button class="btn btn-fo" data-mod>Módosítás</button>` : ''}`;
@@ -2220,7 +2405,7 @@ function foglalasAdatlap(f) {
   };
   if (szerkeszthet) $('[data-mod]', h).onclick = () => foglalasModalis(f, {});
   const sorozatGomb = $('[data-sorozat]', h);
-  if (sorozatGomb) sorozatGomb.onclick = () => sorozatKezelo(f);
+  if (sorozatGomb) sorozatGomb.onclick = () => { sorozatKezelo(f).catch(hibaKi); };
   hozzaszolasokBetolt(f, h);
 }
 
@@ -2290,17 +2475,25 @@ function sorozatTovabbi(f) {
   }).sort((a, b) => a._k - b._k);
 }
 
-function sorozatKezelo(f) {
-  const tovabbi = sorozatTovabbi(f);
+async function sorozatKezelo(f) {
+  // A törlés a szerveren MINDEN későbbi alkalomra megy, ezért a listát is onnan kérjük:
+  // a betöltött időszakból számolt szám kevesebb lenne, mint amennyit törölnénk.
+  const { data, error } = await sb.from('bookings').select('id,kezdet')
+    .eq('sorozat_id', f.sorozat_id).gt('kezdet', f.kezdet).order('kezdet');
+  if (error) { hibaKi(error); return; }
+  const tovabbi = (data || []).map(x => ({ ...x, _k: new Date(x.kezdet) }));
+  if (!tovabbi.length) { pirit('Ebből a sorozatból nincs több későbbi alkalom.', ''); return; }
   const h = modalis({
     cim: 'Ismétlődő sorozat',
     torzs: `<p>Ez az alkalom (${esc(napCimke(f._k))}) után még
       <strong>${tovabbi.length} alkalom</strong> van ugyanebből a sorozatból:</p>
       <p class="halk">${tovabbi.map(x => rovidNap(x._k)).join(', ')}</p>
-      <p class="sugoszoveg">A törlés csak a fenti későbbi alkalmakra vonatkozik, ez a mostani
-        megmarad. A már megtartott alkalmakat nem bántja.</p>`,
+      <p class="sugoszoveg">A „Későbbi alkalmak törlése” mind a ${tovabbi.length} fent felsorolt
+        alkalmat törli; ez a mostani megmarad. A már megtartott alkalmakat nem bántja.</p>`,
     lab: `<button class="btn" data-megse>Mégse</button>
           <button class="btn btn-veszes" data-mind>Későbbi alkalmak törlése</button>`,
+    // verem: a Mégse a foglalás adatlapjára lépjen vissza, ne csukjon be mindent
+    verem: true,
   });
   $('[data-megse]', h).onclick = () => zarModalis();
   $('[data-mind]', h).onclick = async () => {
@@ -2311,7 +2504,8 @@ function sorozatKezelo(f) {
       const { data, error } = await sb.from('bookings').delete()
         .eq('sorozat_id', f.sorozat_id).gt('kezdet', f.kezdet).select('id');
       if (error) throw error;
-      zarModalis();
+      // a művelet lefutott: az alatta lévő adatlap adatai elavultak, ezért mindent zárunk
+      zarMindenModalist();
       A.sajatFoglalasok = null;
       await foglalasokBetolt();
       lapKirajzol();
@@ -2350,12 +2544,15 @@ function kriptoId() {
 function icsLetolt(lista) {
   const napok = napokAMostaniNezetben();
   const k = napok[0], v = napPlusz(napok[napok.length - 1], 1);
+  const lathatoId = new Set(lathatoTermek().map(t => t.id));
   const mit = (lista || A.foglalasok.filter(f => f._v > k && f._k < v &&
-    lathatoTermek().some(t => t.id === f.room_id))).filter(f => f.allapot !== 'lemondva');
+    lathatoId.has(f.room_id))).filter(f => f.allapot !== 'lemondva');
   if (!mit.length) { pirit('Ebben az időszakban nincs letölthető foglalás.', 'hiba'); return; }
 
   const u = d => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-  const sor = s => String(s || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, m => '\\' + m);
+  // RFC 5545 3.3.11: a \ , ; és az újsor escape-elve; a magányos CR is „\n" legyen
+  const sor = s => String(s || '').replace(/\\/g, '\\\\')
+    .replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, m => '\\' + m);
   // az iCalendar szabvány 75 oktettes sorokat kér: a hosszút tördeljük
   const tord = s => {
     const bajt = new TextEncoder().encode(s);
@@ -2372,7 +2569,13 @@ function icsLetolt(lista) {
   };
   const sorok = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//SOK//Oktatotermek//HU', 'CALSCALE:GREGORIAN'];
   mit.forEach(f => {
-    const valtozat = f.modositva ? Math.floor(new Date(f.modositva).getTime() / 1000) % 100000 : 0;
+    // a SEQUENCE-nek revíziónként NÖVEKEDNIE kell (RFC 5545 3.8.7.4): a korábbi
+    // „% 100000" 27,7 óránként körbefordult, és az Outlook eldobta a frissítést
+    const letreMs = new Date(f.letrehozva).getTime();
+    const modosMs = f.modositva ? new Date(f.modositva).getTime() : letreMs;
+    const alapMs = Number.isFinite(letreMs) ? letreMs : Date.now();
+    const valtozat = Number.isFinite(modosMs)
+      ? Math.max(0, Math.min(2147483647, Math.round((modosMs - alapMs) / 60000))) : 0;
     [
       'BEGIN:VEVENT',
       `UID:sokterem-${f.id}@semmelweis.hu`,
@@ -2380,7 +2583,7 @@ function icsLetolt(lista) {
       `DTSTART:${u(f._k)}`,
       `DTEND:${u(f._v)}`,
       `SEQUENCE:${valtozat}`,
-      `LAST-MODIFIED:${u(new Date(f.modositva || f.letrehozva))}`,
+      `LAST-MODIFIED:${u(new Date(Number.isFinite(modosMs) ? modosMs : Date.now()))}`,
       `SUMMARY:${sor(f.cim)}`,
       `LOCATION:${sor(teremNev(f.room_id))}`,
       `DESCRIPTION:${sor([(TIPUSOK[f.tipus] || {}).nev, f.oktato && 'Tartja: ' + f.oktato,
@@ -2453,6 +2656,9 @@ function eszkozokHtml() {
   const inaktivDb = A.eszkozok.filter(e => e.aktiv === false).length;
 
   return `
+  <div class="nyomtatas-fej"><strong>Oktatási eszközök</strong>
+    <span>Semmelweis Egyetem · Sürgősségi Orvostani Klinika · nyomtatva: ${
+      new Date().toLocaleString('hu-HU')}</span></div>
   <div class="kpi-sor">
     ${kpi}
     <button class="kpi kpi-gomb" data-kpi-szuro="nincs" title="Csak amiknél nincs terem megadva">
@@ -2521,7 +2727,7 @@ function eszkozokHtml() {
           ${e.nev2 ? `<br><span class="halk">${esc(e.nev2)}</span>` : ''}
           ${e.gyari_sz ? `<br><span class="halk apro">gy.sz.: ${esc(e.gyari_sz)}</span>` : ''}</td>
         <td data-cimke="Leltárszám" class="halk">${esc(e.leltarszam || '—')}</td>
-        <td data-cimke="Terem"><select data-mezo="room_id" aria-label="Terem"style="min-width:110px">
+        <td data-cimke="Terem"><select data-mezo="room_id" aria-label="Terem" style="min-width:110px">
             <option value="">— nincs —</option>
             ${A.termek.map(t => `<option value="${t.id}" ${e.room_id === t.id ? 'selected' : ''}>${esc(t.kod)}</option>`).join('')}
           </select></td>
@@ -2647,11 +2853,24 @@ function eszkozokKotes() {
     lapKirajzol();
   });
 
-  $$('tr[data-esz]', tart).forEach(tr => {
-    const id = Number(tr.dataset.esz);
-    $$('[data-mezo]', tr).forEach(m => m.addEventListener('change', () => eszkozMentes(id, m)));
-  });
-  $$('[data-adatlap]', tart).forEach(b => b.onclick = () => eszkozAdatlap(Number(b.dataset.adatlap)));
+  // Esemény-delegálás: 159 sor × 5 mező ≈ 800 külön figyelő helyett kettő, a #tartalom-on.
+  // A #tartalom NEM cserélődik kirajzoláskor (csak az innerHTML-je), ezért csak EGYSZER
+  // kötjük rá — különben minden kirajzolás új figyelőt halmozna rá.
+  if (!eszkozokKotes._delegalt) {
+    eszkozokKotes._delegalt = true;
+    const gyoker = $('#tartalom');
+    gyoker.addEventListener('change', e => {
+      if (A.lap !== 'eszkozok') return;
+      const m = e.target.closest('[data-mezo]');
+      const tr = m && m.closest('tr[data-esz]');
+      if (tr) eszkozMentes(Number(tr.dataset.esz), m);
+    });
+    gyoker.addEventListener('click', e => {
+      if (A.lap !== 'eszkozok') return;
+      const b = e.target.closest('[data-adatlap]');
+      if (b) eszkozAdatlap(Number(b.dataset.adatlap));
+    });
+  }
 
   const nyit = $('[data-inaktiv-nyit]', tart);
   if (nyit) nyit.onclick = () => { A.eszkSzuro.inaktiv = !A.eszkSzuro.inaktiv; lapKirajzol(); };
@@ -2725,6 +2944,8 @@ const ESZK_MEZONEV = {
   konyv_ertek: 'könyv szerinti érték', kategoria: 'kategória', room_id: 'terem',
   hely_szoveg: 'pontos hely', kinel: 'kinél van', allapot: 'állapot', megjegyzes: 'megjegyzés',
   ellenorizve: 'ellenőrizve', aktiv: 'használatban',
+  // a felvételt az adatbázis írja a naplóba ezzel a kóddal; enélkül „felvetel” látszott
+  felvetel: 'felvétel',
 };
 
 /* eszköz adatlapja: minden mező szerkeszthető + előzmény + „nem használt” */
@@ -2809,7 +3030,7 @@ async function eszkozAdatlap(id) {
   const hiba = m => {
     if (!document.body.contains(h)) { pirit(m, 'hiba'); return; }
     const x = $('#ea-hiba', h);
-    x.textContent = m; x.hidden = false; x.scrollIntoView({ block: 'nearest' });
+    x.hidden = false; x.textContent = m; x.scrollIntoView({ block: 'nearest' });
   };
   $('[data-megse]', h).onclick = () => zarKerdessel();
 
@@ -2823,7 +3044,8 @@ async function eszkozAdatlap(id) {
 
   $('[data-ment]', h).onclick = async () => {
     const nev = $('#ea-nev', h).value.trim();
-    if (!nev) return hiba('A megnevezés kötelező.');
+    if (!nev) { $('#ea-nev', h).setAttribute('aria-invalid', 'true'); $('#ea-nev', h).focus();
+      return hiba('A megnevezés kötelező.'); }
     const szam = s => (s === '' ? null : Number(s));
     const ertek = szam($('#ea-ertek', h).value);
     if (ertek !== null && (!Number.isFinite(ertek) || ertek < 0)) {
@@ -2872,7 +3094,9 @@ async function eszkozAdatlap(id) {
         if (error) throw error;
         if (!data || !data.length) {
           await eszkozokBetolt();
-          throw new Error('Ezt a tételt közben más átírta. Betöltöttem a friss adatot, nézd meg újra.');
+          const utkozes = new Error('Ezt a tételt közben más átírta. Betöltöttem a friss adatot, nézd meg újra.');
+          utkozes.sajatSzoveg = true;      // már kész magyar mondat: ne fordítsuk újra
+          throw utkozes;
         }
       }
       zarModalis();
@@ -2882,9 +3106,8 @@ async function eszkozAdatlap(id) {
     } catch (err) {
       if (modalisAllapot) modalisAllapot.ment = false;
       gomb.disabled = false; gomb.textContent = 'Mentés';
-      hiba(hibaSzoveg(err) === 'Váratlan hiba történt, a művelet nem sikerült. Próbáld újra; ha marad, jelezd a titkárságnak.'
-        && err && err.message && /közben más átírta/.test(err.message) ? err.message : hibaSzoveg(err));
-      if (err && err.message && /közben más átírta/.test(err.message)) lapKirajzol();
+      hiba(err && err.sajatSzoveg ? err.message : hibaSzoveg(err));
+      if (err && err.sajatSzoveg) lapKirajzol();
     }
   };
 
@@ -2950,7 +3173,8 @@ function termekHtml() {
   };
   return `
   <div class="eszkoztar">
-    <span class="halk">${maiHet ? 'Ez a hét' : `A megjelenített hét: ${ymd(k)} – ${ymd(napPlusz(k, 6))}`}
+    <span class="halk">${maiHet ? 'Ez a hét'
+      : `A megjelenített hét: ${rovidNap(k)} – ${rovidNap(napPlusz(k, 6))} (${k.getFullYear()}.)`}
       ${sugoJel('A kihasználtság a Naptár lapon éppen megjelenített héten alapul: ha ott előre vagy hátra lapozol, itt is az a hét látszik. A százalék a hétköznapi 8–18 közötti 50 órához mért arány.')}</span>
     <span class="tolto"></span>
     <button class="btn" data-foglalas-csv>Foglalások letöltése (CSV)</button>
@@ -2996,7 +3220,10 @@ function kihasznaltsagHtml() {
     return `<div class="kartya"><div class="kartya-fej"><h2>Kihasználtság</h2></div>
       <p class="halk">A betöltött időszakban még nincs foglalás, amiből számolni lehetne.</p></div>`;
   }
-  const honapok = [...new Set(hasznalt.map(f => `${f._k.getFullYear()}-${f._k.getMonth()}`))]
+  // a hónap sorszáma két jegyre kiegészítve: szöveges rendezésnél a „2026-10”
+  // egyébként a „2026-7” elé került, tehát november az augusztus elé csúszott
+  const honapok = [...new Set(hasznalt.map(f =>
+    `${f._k.getFullYear()}-${String(f._k.getMonth()).padStart(2, '0')}`))]
     .sort().slice(-6);
   const termek = A.termek.filter(t => t.aktiv);
   const ora = lista => Math.round(lista.reduce((s, f) => s + (f._v - f._k) / 3600000, 0) * 10) / 10;
@@ -3033,7 +3260,8 @@ function kihasznaltsagHtml() {
     <div class="tabla-tarto"><table>
       <thead><tr><th>Terem</th>${honapok.map(k => {
         const [ev, ho] = k.split('-').map(Number);
-        return `<th>${HONAP_ROVID[ho]} ${String(ev).slice(2)}</th>`;
+        // „2026. aug.” és nem „aug. 26”: az utóbbi augusztus 26-ának olvasható
+        return `<th>${ev}. ${HONAP_ROVID[ho]}</th>`;
       }).join('')}<th>Összesen</th></tr></thead>
       <tbody>${sorok.map(r => `<tr>
         <td data-cimke="Terem"><strong>${esc(r.t.kod)}</strong><br>
@@ -3058,9 +3286,11 @@ function kihasznaltsagHtml() {
 
 /* foglalások kimutatása Excelbe (kihasználtsághoz, beszámolóhoz) */
 async function foglalasCsv() {
-  const { data, error } = await sb.from('bookings').select('*')
-    .order('kezdet', { ascending: false }).limit(3000);
-  if (error) { hibaKi(error); return; }
+  let data;
+  try {
+    data = await oldalakban(() => sb.from('bookings').select('*')
+      .order('kezdet', { ascending: false }).order('id'));
+  } catch (e) { hibaKi(e); return; }
   const biztos = v => {
     let s = String(v ?? '');
     if (/^[=+\-@]/.test(s)) s = "'" + s;
@@ -3216,9 +3446,13 @@ function teremModalis(t) {
       await adatokBetolt(); lapKirajzol(); pirit('Terem törölve.', 'siker');
     });
   $('[data-ment]', h).onclick = async () => {
-    const hiba = m => { const e = $('#tm-hiba', h); e.textContent = m; e.hidden = false; };
+    const hiba = m => { const e = $('#tm-hiba', h); e.hidden = false; e.textContent = m; };
     const kod = $('#tm-kod', h).value.trim(), nev = $('#tm-nev', h).value.trim();
-    if (!kod || !nev) return hiba('A teremkód és a név kötelező.');
+    if (!kod || !nev) {
+      const cel = !kod ? $('#tm-kod', h) : $('#tm-nev', h);
+      cel.setAttribute('aria-invalid', 'true'); cel.focus();
+      return hiba('A teremkód és a név kötelező.');
+    }
     const sor = {
       kod, nev, szin,
       epulet: $('#tm-epulet', h).value.trim() || null,
@@ -3364,7 +3598,7 @@ function fiokAdatlap(id) {
     <button class="btn" data-megse>Bezárás</button>
     <button class="btn btn-fo" data-ment>Mentés</button>`;
   const h = modalis({ cim: p.nev, torzs, lab, zarKerdes: true });
-  const hiba = m => { const e = $('#fa-hiba', h); e.textContent = m; e.hidden = false; };
+  const hiba = m => { const e = $('#fa-hiba', h); e.hidden = false; e.textContent = m; };
   $('[data-megse]', h).onclick = () => zarKerdessel();
 
   $('[data-jelszo-level]', h).onclick = () => {
@@ -3433,26 +3667,40 @@ const NAPLO_TIPUS = {
   fiok: 'Fiókok', belepes: 'Belépések',
 };
 
+const NAPLO_KERET = 400;
 async function naploHtml() {
   const sz = A.naploSzuro;
-  let kerdes = sb.from('naplo').select('*').order('mikor', { ascending: false }).limit(400);
-  if (sz.tipus) kerdes = kerdes.eq('tipus', sz.tipus);
-  const { data, error } = await kerdes;
-  if (error) return `<div class="kartya"><p class="modalis-hiba">${esc(hibaSzoveg(error))}</p></div>`;
-
+  // a kereső kliensoldalon szűr, ezért gépelés közben NE kérdezzük újra a szervert:
+  // csak a típus- vagy a személyszűrő változásakor olvasunk
+  const kulcs = `${sz.tipus}|${sz.ki}`;
+  if (!A.naploTalalat || A.naploKulcs !== kulcs) {
+    let kerdes = sb.from('naplo').select('*')
+      .order('mikor', { ascending: false }).limit(NAPLO_KERET);
+    if (sz.tipus) kerdes = kerdes.eq('tipus', sz.tipus);
+    if (sz.ki) kerdes = kerdes.eq('ki', sz.ki);      // szerveroldalon szűrve nem csak a
+    const { data, error } = await kerdes;             // legutóbbi 400 sorból válogat
+    if (error) return `<div class="kartya"><p class="modalis-hiba">${esc(hibaSzoveg(error))}</p></div>`;
+    A.naploTalalat = (data || []).map(r => ({
+      // a keresőkulcsot egyszer számoljuk ki, nem minden leütésnél újra
+      ...r, _kulcs: normal([r.mit, r.ki, JSON.stringify(r.reszlet || '')].join(' ')),
+    }));
+    A.naploKulcs = kulcs;
+    if (!sz.ki) A.naploEmberek = [...new Set(A.naploTalalat.map(r => r.ki).filter(Boolean))].sort();
+  }
+  const data = A.naploTalalat;
+  const elvagva = data.length >= NAPLO_KERET;
   const keres = normal(sz.szo.trim());
-  let sorok = data || [];
-  if (sz.ki) sorok = sorok.filter(r => r.ki === sz.ki);
-  if (keres) sorok = sorok.filter(r => normal([r.mit, r.ki, JSON.stringify(r.reszlet || '')].join(' ')).includes(keres));
-  const emberek = [...new Set((data || []).map(r => r.ki).filter(Boolean)
-    .concat(sz.ki ? [sz.ki] : []))].sort();
+  const sorok = keres ? data.filter(r => r._kulcs.includes(keres)) : data;
+  const emberek = [...new Set((A.naploEmberek || []).concat(sz.ki ? [sz.ki] : []))].sort();
   const tipusok = kezelo() ? Object.entries(NAPLO_TIPUS)
     : Object.entries(NAPLO_TIPUS).filter(([k]) => ['foglalas', 'eszkoz', 'terem'].includes(k));
 
   return `<div class="kartya">
     <div class="kartya-fej">
       <h2>Napló ${sugoJel('Itt látszik, ki mit vett fel, módosított vagy törölt. A foglalások, az eszközök és a termek változásait mindenki látja; a fiók- és belépési sorokat csak a titkárság és a rendszergazda.')}</h2>
-      <span class="halk">${sorok.length} esemény${sorok.length >= 400 ? ' (a legutóbbiak)' : ''}</span>
+      <span class="halk">${sorok.length} esemény${elvagva
+        ? ` — csak a legutóbbi ${NAPLO_KERET} bejegyzés között kerestünk; a régebbieket a
+            „Teljes napló letöltése (CSV)” tartalmazza` : ''}</span>
     </div>
     <div class="eszkoztar">
       <div class="csipek" role="group" aria-label="Napló szűrése">
@@ -3554,8 +3802,11 @@ function naploKotes() {
 }
 
 async function naploCsv() {
-  const { data, error } = await sb.from('naplo').select('*').order('mikor', { ascending: false }).limit(2000);
-  if (error) { hibaKi(error); return; }
+  let data;
+  try {
+    data = await oldalakban(() => sb.from('naplo').select('*')
+      .order('mikor', { ascending: false }).order('id'));
+  } catch (e) { hibaKi(e); return; }
   const biztos = v => {
     let s = String(v ?? '');
     if (/^[=+\-@]/.test(s)) s = "'" + s;
@@ -3576,8 +3827,10 @@ function emlitesKiegeszito(mezo) {
   let lista = null, talalatok = [], kivalasztott = 0;
   const zar = () => { if (lista) { lista.remove(); lista = null; talalatok = []; } };
 
+  // a szerver (terem.emlitesek) csak a 3 karakternél hosszabb nevekre értesít,
+  // ezért rövidebbet nem is ajánlunk fel — különben a megemlítés némán elveszne
   const nevek = () => (A.nevlista.length ? A.nevlista : (A.profil ? [A.profil] : []))
-    .filter(p => p && p.nev).map(p => p.nev);
+    .filter(p => p && p.nev && p.nev.length > 3).map(p => p.nev);
 
   function rajzol() {
     if (!talalatok.length) { zar(); return; }
@@ -3632,15 +3885,23 @@ function emlitesKiegeszito(mezo) {
 }
 
 /* a szövegben lévő @Név kiemelése megjelenítéskor */
+let emlitesMinta = null, emlitesMintaKulcs = '';
 function emlitesekKiemelve(szoveg) {
   const nevek = (A.nevlista.length ? A.nevlista : (A.profil ? [A.profil] : []))
-    .filter(p => p && p.nev).map(p => p.nev)
+    .filter(p => p && p.nev && p.nev.length > 3).map(p => p.nev)
     .sort((a, b) => b.length - a.length);            // a leghosszabb név nyerjen
   const ki = esc(szoveg);
   if (!nevek.length) return ki;
-  const minta = new RegExp('@(' + nevek
-    .map(n => esc(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') +
-    ')(?![\\p{L}\\p{N}])', 'gu');
+  // a mintát csak a névlista változásakor építjük újra; az „i" azért kell,
+  // mert a szerver is kisbetűsen illeszt
+  const kulcs = nevek.join('|');
+  if (kulcs !== emlitesMintaKulcs) {
+    emlitesMinta = new RegExp('@(' + nevek
+      .map(n => esc(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') +
+      ')(?![\\p{L}\\p{N}])', 'giu');
+    emlitesMintaKulcs = kulcs;
+  }
+  const minta = emlitesMinta;
   // egy menetben cserélünk, függvénnyel — így nem ágyazódnak egymásba a kiemelések
   return ki.replace(minta, (egesz, nev) => `<span class="emlites">@${nev}</span>`);
 }
@@ -3794,11 +4055,12 @@ function fiokomKotes() {
         .eq('id', A.user.id).select('id'));
       A.profil.nev = nev;
       $('#felh-nev').textContent = nev;
+      $('#felh-gomb').title = nev;
       pirit('Mentve.', 'siker');
     } catch (e) { hibaKi(e); } finally { gomb.disabled = false; }
   };
   $('[data-jelszo-ment]').onclick = async () => {
-    const hiba = m => { const e = $('#fi-hiba'); e.textContent = m; e.hidden = false; };
+    const hiba = m => { const e = $('#fi-hiba'); e.hidden = false; e.textContent = m; };
     $('#fi-hiba').hidden = true;
     const regi = $('#fi-regi').value, u1 = $('#fi-uj1').value, u2 = $('#fi-uj2').value;
     if (!regi) return hiba('Add meg a mostani jelszavadat.');
@@ -3817,7 +4079,11 @@ function fiokomKotes() {
       await ideiglenes.auth.signOut();
       const { error } = await sb.auth.updateUser({ password: u1 });
       if (error) throw error;
-      await sb.from('profiles').update({ jelszo_csere: false }).eq('id', A.user.id);
+      // ellenőrizetlenül hagyva a jelző bent maradhat, és a rendszer a következő
+      // belépésnél újra kötelező jelszócserét kérne
+      ellenoriz(await sb.from('profiles').update({ jelszo_csere: false })
+        .eq('id', A.user.id).select('id'));
+      A.profil.jelszo_csere = false;
       $('#fi-regi').value = $('#fi-uj1').value = $('#fi-uj2').value = '';
       pirit('Az új jelszó elmentve.', 'siker');
     } catch (e) {
@@ -4074,17 +4340,36 @@ async function ajtoNezet(kod) {
   tarto.id = 'ajto-kijelzo';
   document.body.appendChild(tarto);
 
+  let utolsoSiker = null, frissitesHiba = false;
   async function rajzol() {
+    if (rajzol._fut) return;              // lassú hálózatnál ne fusson két példány
+    rajzol._fut = true;
     try {
-      await Promise.all([
-        A.termek.length ? Promise.resolve() : sb.from('rooms').select('*').order('sorrend')
-          .then(r => { A.termek = r.data || []; }),
-        foglalasokBetolt(),
-      ]);
-    } catch (e) { /* hálózati hiba: a korábbi kép marad */ }
+      if (!A.termek.length) {
+        const r = await sb.from('rooms').select('*').order('sorrend');
+        if (r.error) throw r.error;
+        A.termek = r.data || [];
+      }
+      // a kijelzőnek csak a mai (és a hajnalba átnyúló) nap kell, nem a naptár teljes ablaka
+      const napKezd = kezdoNap(new Date()), napVeg = napPlusz(napKezd, 2);
+      const { data, error } = await sb.from('bookings').select('*')
+        .lt('kezdet', napVeg.toISOString()).gt('veg', napKezd.toISOString()).order('kezdet');
+      if (error) throw error;
+      A.foglalasok = (data || []).map(f => ({ ...f, _k: new Date(f.kezdet), _v: new Date(f.veg) }));
+      utolsoSiker = new Date();
+      frissitesHiba = false;
+    } catch (e) {
+      // ne maradjon néma: a kijelzőn látszódjon, hogy amit mutat, elavulhat
+      console.error('ajtó-nézet frissítés:', e);
+      frissitesHiba = true;
+    } finally {
+      rajzol._fut = false;
+    }
     const t = A.termek.find(x => normal(x.kod) === normal(kod));
     if (!t) {
-      tarto.innerHTML = `<div class="ajto-hiba">Nincs ilyen teremkód: ${esc(kod)}</div>`;
+      tarto.innerHTML = `<div class="ajto-hiba">${A.termek.length
+        ? `Nincs ilyen teremkód: ${esc(kod)}`
+        : 'Nem sikerült betölteni a termek listáját. Ellenőrizd a hálózatot.'}</div>`;
       return;
     }
     const most = new Date();
@@ -4114,7 +4399,10 @@ async function ajtoNezet(kod) {
           <span><strong>${esc(f.cim)}</strong>${f.oktato ? `<br><span class="ajto-ki">${esc(f.oktato)}</span>` : ''}</span>
         </div>`).join('') : '<div class="ajto-ures">Nincs több mai foglalás.</div>'}
       </div>
-      <div class="ajto-lab">Semmelweis Egyetem · Sürgősségi Orvostani Klinika · sokterem.github.io</div>`;
+      <div class="ajto-lab ${frissitesHiba ? 'ajto-elavult' : ''}">
+        Semmelweis Egyetem · Sürgősségi Orvostani Klinika · sokterem.github.io${frissitesHiba
+          ? ` · NEM SIKERÜLT FRISSÍTENI — az adat ${utolsoSiker ? hm(utolsoSiker) + '-kor' : 'indulás óta'} volt friss`
+          : ''}</div>`;
   }
 
   await rajzol();
