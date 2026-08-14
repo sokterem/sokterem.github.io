@@ -233,12 +233,66 @@ main{padding:1rem; max-width:1500px; margin:0 auto}
 .esemeny .e-alsor{opacity:.9; display:block; overflow:hidden; text-overflow:ellipsis}
 .esemeny.lemondva{opacity:.45; text-decoration:line-through}
 .esemeny.enyem{border-left-color:var(--arany)}
+/* zsúfolt vagy nagyon rövid blokknál csak a lényeg látszik, a többi a részletekben */
+.esemeny.szuk{font-size:.66rem; padding:.15rem .25rem}
+.esemeny.szuk .e-alsor,.esemeny.alacsony .e-alsor{display:none}
+.esemeny.alacsony{padding:.05rem .3rem; white-space:nowrap}
+.esemeny.alacsony .e-ido{margin-right:.35em}
+.esemeny.alacsony .e-cim{display:inline}
 
 /* napi nézet (termek oszlopban) */
 .terem-fej{position:sticky; top:0; z-index:20; background:#fff; padding:.5rem .4rem;
   text-align:center; font-size:.8rem; font-weight:600; border-bottom:1px solid var(--vonal)}
 .terem-fej .kod{display:block; font-size:1rem; font-weight:700}
 .terem-fej .hely{display:block; font-size:.68rem; color:var(--szoveg-halkabb); font-weight:500}
+
+/* ─────────────────────────────────────────────── hónap nézet */
+.honap-racs{
+  display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:1px;
+  background:var(--vonal); border:1px solid var(--vonal); border-radius:var(--r);
+  overflow:hidden; box-shadow:var(--arnyek-s);
+}
+.honap-fej{
+  background:#f8f9fc; text-align:center; padding:.4rem .2rem; font-size:.75rem; font-weight:700;
+  color:var(--szoveg-halk); text-transform:uppercase; letter-spacing:.04em;
+}
+.honap-cella{
+  background:#fff; min-height:96px; padding:.3rem .35rem; display:flex; flex-direction:column;
+  gap:2px; cursor:copy;
+}
+.honap-cella:hover{background:#fafbff}
+.honap-cella.hetvege{background:#fbfbfd}
+.honap-cella.mas-honap{background:#f7f8fb; opacity:.65}
+.honap-cella.ma{background:#eef2fb; box-shadow:inset 0 2px 0 var(--arany-sotet)}
+.honap-nap-fej{display:flex; align-items:center; gap:.3rem; margin-bottom:1px}
+.honap-nap-szam{font-weight:700; font-size:.9rem}
+.honap-nap-szam.unnep{color:var(--piros)}
+.honap-unnep{font-size:.6rem; color:var(--piros); overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; flex:1}
+.honap-db{margin-left:auto; font-size:.62rem; font-weight:700; color:var(--szoveg-halkabb);
+  background:#eef0f5; border-radius:100px; padding:0 .35em}
+.honap-esemeny{
+  display:flex; gap:.25rem; align-items:baseline; width:100%; text-align:left;
+  font-family:var(--betu); font-size:.68rem; line-height:1.3; background:#fff;
+  border:1px solid var(--vonal); border-left:3px solid var(--kek); border-radius:4px;
+  padding:.1rem .25rem; cursor:pointer; overflow:hidden;
+}
+.honap-esemeny:hover{background:var(--kek-halvany)}
+.honap-esemeny.lemondva{opacity:.5; text-decoration:line-through}
+.honap-ido{font-weight:700; font-variant-numeric:tabular-nums; flex:0 0 auto}
+.honap-cim{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1}
+.honap-terem{font-weight:700; flex:0 0 auto; font-size:.62rem}
+.honap-tovabb{
+  background:none; border:none; font-family:var(--betu); font-size:.66rem; font-weight:600;
+  color:var(--azur); cursor:pointer; text-align:left; padding:.1rem .25rem;
+}
+.honap-tovabb:hover{text-decoration:underline}
+
+@media (max-width:820px){
+  .honap-cella{min-height:64px; padding:.2rem}
+  .honap-cim,.honap-unnep{display:none}
+  .honap-esemeny{font-size:.6rem}
+}
 
 /* ─────────────────────────────────────────────── agenda / lista */
 .agenda{display:flex; flex-direction:column; gap:.5rem}
@@ -279,6 +333,7 @@ td select,td input{font-size:.82rem; padding:.3em .4em}
 .jelzo-arany{background:#f8f2dd; color:#6d5c1f}
 
 /* ─────────────────────────────────────────────── modális */
+.modalis-hatter.hatra{display:none}   /* a megerősítő ablak alatti réteg megmarad, csak nem látszik */
 .modalis-hatter{
   position:fixed; inset:0; background:rgba(21,29,63,.55); z-index:100;
   display:flex; align-items:flex-start; justify-content:center; padding:1rem; overflow-y:auto;
@@ -338,6 +393,24 @@ dl{margin:.3rem 0 0}
 .sugo-lista li{margin-bottom:.4rem}
 
 /* ────────────────────────────────── a javítókörben hozzátett elemek */
+/* magyarázó kérdőjel + buborék */
+.sugo-jel{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:1.25em; height:1.25em; min-width:19px; min-height:19px; padding:0; margin-left:.25em;
+  border-radius:50%; border:1px solid var(--vonal); background:#fff; color:var(--azur);
+  font-family:var(--betu); font-size:.72rem; font-weight:700; line-height:1; cursor:help;
+  vertical-align:middle; flex:0 0 auto;
+}
+.sugo-jel:hover{background:var(--azur); color:#fff; border-color:var(--azur)}
+.sugo-jel:focus-visible{outline:2px solid var(--azur); outline-offset:1px}
+.sugo-buborek{
+  position:absolute; z-index:300; background:var(--kek); color:#fff; font-size:.82rem;
+  line-height:1.4; padding:.6em .75em; border-radius:8px; box-shadow:var(--arnyek-n);
+  border-top:2px solid var(--arany);
+}
+.verzio-blokk{padding:.5rem 0; border-top:1px solid var(--vonal)}
+.verzio-fej{font-size:.9rem}
+
 .szuro-sav{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
   background:var(--azur-halvany); border:1px solid #bfe3f6; color:#00618f;
   border-radius:var(--r-s); padding:.45rem .7rem; margin-bottom:.7rem; font-size:.85rem}
@@ -418,6 +491,10 @@ input.mentve,select.mentve{background:#e8f7ee; border-color:var(--zold)}
   .sugoszoveg,.most-vonal span{display:none !important}
   body{background:#fff; font-size:11px}
   main{padding:0; max-width:none}
+  /* a böngésző alapból nem nyomtat hátteret, ezért kényszerítjük — különben
+     eltűnnének az óravonalak és a hétvége jelölése */
+  .nap-oszlop,.racs-fej,.terem-fej,.esemeny{
+    -webkit-print-color-adjust:exact; print-color-adjust:exact}
   .racs-tarto{max-height:none; overflow:visible; border:none; box-shadow:none}
   .racs{min-width:0}
   .nap-oszlop,.racs-fej,.terem-fej{break-inside:avoid}
