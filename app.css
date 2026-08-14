@@ -543,3 +543,19 @@ input.mentve,select.mentve{background:#e8f7ee; border-color:var(--zold)}
   background:#fdf6f7; border:1px solid #f3c9ce; color:#9b0a1a;
 }
 .nap-jelleg-sav.jelleg-athelyezett-munkanap{background:#f4fbf7; border-color:#bfe6d2; color:#046b39}
+
+/* üres időszak: mit lehet tenni — ne csak egy üres rács fogadja a felhasználót */
+.ures-jelzes{
+  margin:0 0 .7rem; padding:.55rem .8rem; border-radius:var(--r-s); font-size:.85rem;
+  background:var(--kek-halvany); border:1px solid #d8ddef; color:var(--kek);
+}
+/* a „Ma" gomb jelezze, ha már ott vagyunk */
+.btn.aktualis{border-color:var(--arany-sotet); box-shadow:inset 0 -2px 0 var(--arany)}
+
+/* billentyűzettel: első Tab-ra ugorható a tartalomra */
+.ugras-tartalomra{
+  position:absolute; left:-9999px; top:0; z-index:100; background:#fff; color:var(--kek);
+  padding:.6em 1em; border-radius:0 0 var(--r-s) 0; font-weight:600; font-size:.88rem;
+}
+.ugras-tartalomra:focus{left:0}
+#tartalom:focus{outline:none}

@@ -4,8 +4,15 @@
    ══════════════════════════════════════════════════════════════════════ */
 'use strict';
 
-const VERZIO = 'v1.3';
+const VERZIO = 'v1.4';
 const VERZIONAPLO = [
+  ['v1.4', '2026. augusztus 14.', [
+    'Foglalás másolása másik napra egy gombbal (pótlás, ismétlődő oktatás).',
+    'A heti nézetben látszik az oktatási hét sorszáma; a „Ma” gomb jelzi, ha a mai időszakot nézed.',
+    'Üres hétnél, napnál és hónapnál a felület megmondja, mit lehet tenni.',
+    'A foglalási űrlap szól, ha a beírt létszám meghaladja a terem férőhelyét.',
+    'Billentyűzettel „Ugrás a tartalomra”; váratlan hibánál érthető üzenet a néma hibák helyett.',
+  ]],
   ['v1.3', '2026. augusztus 14.', [
     'A nem használt eszközök külön blokkba kerültek a lap alján: a listából a „Kivesz” gombbal egy mozdulattal kivehető egy tétel, és a „Visszatesz” gombbal visszakerül. Nem törlődik, az előzménye megmarad.',
     'Munkarend hiteles forrásból: a munkaszüneti napok a Munka Törvénykönyve 102. §-a szerint, az áthelyezett („ledolgozós”) munkanapok és a hozzájuk tartozó pihenőnapok a hatályos miniszteri rendelet alapján vannak jelölve, a forrás kiírásával. Ha egy évre még nincs rendelet, a felület ezt megírja, és nem tippel.',
@@ -191,6 +198,14 @@ function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function hm(d) { return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
+/* ISO hét sorszáma — az egyetemi oktatási hetek miatt hasznos */
+function hetSorszam(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() + 3 - ((x.getDay() + 6) % 7));
+  const elso = new Date(x.getFullYear(), 0, 4);
+  return 1 + Math.round(((x - elso) / 86400000 - 3 + ((elso.getDay() + 6) % 7)) / 7);
+}
+
 function napCimke(d) { return `${d.getFullYear()}. ${HONAPOK[d.getMonth()]} ${d.getDate()}. (${NAPNEVEK[(d.getDay() + 6) % 7]})`; }
 function rovidNap(d) { return `${HONAP_ROVID[d.getMonth()]} ${d.getDate()}.`; }
 function percbe(d) { return d.getHours() * 60 + d.getMinutes(); }
@@ -419,6 +434,18 @@ function hibaSzoveg(e) {
   return 'Váratlan hiba történt, a művelet nem sikerült. Próbáld újra; ha marad, jelezd a titkárságnak.';
 }
 function hibaKi(e) { console.error(e); pirit(hibaSzoveg(e), 'hiba'); }
+
+/* Ha valami mégis elszáll, a felhasználó lássa — ne egy néma, nem működő gomb legyen belőle. */
+let utolsoVaratlan = 0;
+function varatlanHiba(forras, hiba) {
+  console.error(forras, hiba);
+  if (Date.now() - utolsoVaratlan < 20000) return;       // ne áradjon
+  utolsoVaratlan = Date.now();
+  pirit('Valami váratlan hiba történt, és lehet, hogy a legutóbbi művelet nem sikerült. ' +
+        'Töltsd újra a lapot; ha marad, írd meg a Visszajelzés menüpontban.', 'hiba');
+}
+window.addEventListener('error', e => varatlanHiba('hiba', e.error || e.message));
+window.addEventListener('unhandledrejection', e => varatlanHiba('elkapatlan', e.reason));
 
 /* mentés-ellenőrzés: a PostgREST 0 érintett sornál sem ad hibát,
    ezért minden írásnál visszakérjük az érintett sorokat */
@@ -844,6 +871,11 @@ function napiSzeletek(nap, teremId) {
     .sort((a, b) => a.kezdPerc - b.kezdPerc || a.vegPerc - b.vegPerc);
 }
 
+/* a megjelenített időszak tartalmazza-e a mai napot */
+function maiIdoszak() {
+  return napokAMostaniNezetben().some(maE);
+}
+
 function naptarHtml() {
   const idoszak = A.nezet === 'nap'
     ? napCimke(A.nap)
@@ -853,7 +885,8 @@ function naptarHtml() {
         const k = hetKezdet(A.nap), v = napPlusz(k, 6);
         const azonosHo = k.getMonth() === v.getMonth();
         return `${k.getFullYear()}. ${HONAPOK[k.getMonth()]} ${k.getDate()}.` +
-               ` – ${azonosHo ? '' : HONAPOK[v.getMonth()] + ' '}${v.getDate()}.`;
+               ` – ${azonosHo ? '' : HONAPOK[v.getMonth()] + ' '}${v.getDate()}.` +
+               ` · ${hetSorszam(k)}. hét`;
       })();
   const lepesNev = { nap: 'nap', honap: 'hónap' }[A.nezet] || 'hét';
 
@@ -877,7 +910,8 @@ function naptarHtml() {
       <span class="idoszak">${esc(idoszak)}</span>
       <button data-lep="1" aria-label="Következő ${lepesNev}">▶</button>
     </div>
-    <button class="btn" data-ma>Ma</button>
+    <button class="btn ${maiIdoszak() ? 'aktualis' : ''}" data-ma
+      ${maiIdoszak() ? 'aria-current="date"' : ''}>Ma</button>
     <input type="date" id="datum-valaszto" value="${ymd(A.nap)}"
       aria-label="Ugrás dátumra" style="width:auto">
     <div class="valto" role="group" aria-label="Nézet">
@@ -955,7 +989,10 @@ function hetiRacsHtml() {
       esemenyekHtml(napiSzeletek(d), d, sav, true)}</div>`;
   }).join('');
 
-  return `<div class="racs-tarto"><div class="racs"
+  const ures = !napok.some(d => napiSzeletek(d).length);
+  return `${ures ? `<p class="ures-jelzes">Ezen a héten még nincs foglalás ezekben a termekben —
+    kattints a rácsban a kívánt napra és órára, és már nyílik is az űrlap.</p>` : ''}
+    <div class="racs-tarto"><div class="racs"
       style="--ora:${ORA_PX}px; grid-template-columns:52px repeat(7,minmax(88px,1fr));
              grid-template-rows:auto ${magas}px">
     ${fej}
@@ -988,8 +1025,11 @@ function napiRacsHtml() {
       data-nap="${ymd(nap)}" data-terem="${t.id}" style="height:${magas}px">${
       mostVonal(nap, sav)}${esemenyekHtml(napiSzeletek(nap, t.id), nap, sav, false)}</div>`).join('');
 
+  const uresNap = !termek.some(t => napiSzeletek(nap, t.id).length);
   return `${napJ.cimke ? `<div class="nap-jelleg-sav jelleg-${napJ.fajta}">
       <strong>${esc(napJ.cimke)}</strong> — ${esc(napJ.magyarazat)}</div>` : ''}
+    ${uresNap ? `<p class="ures-jelzes">Ezen a napon még egy foglalás sincs —
+      kattints a terem oszlopában a kívánt órára.</p>` : ''}
     <div class="racs-tarto"><div class="racs"
       style="--ora:${ORA_PX}px; grid-template-columns:52px repeat(${termek.length},minmax(120px,1fr));
              grid-template-rows:auto ${magas}px">
@@ -1108,7 +1148,13 @@ function honapRacsHtml() {
     </div>`;
   }).join('');
 
-  return `<div class="honap-racs">${fej}${cellak}</div>`;
+  const uresHonap = !napok.some(d => {
+    const nk = kezdoNap(d), nv = napPlusz(nk, 1);
+    return A.foglalasok.some(f => lathatoTermek().some(t => t.id === f.room_id) && f._k < nv && f._v > nk);
+  });
+  return `${uresHonap ? `<p class="ures-jelzes">Ebben a hónapban még nincs foglalás —
+    kattints egy napra, és megnyílik a napi beosztás, ahol foglalni tudsz.</p>` : ''}
+    <div class="honap-racs">${fej}${cellak}</div>`;
 }
 
 /* ─── lista / agenda nézet */
@@ -1357,8 +1403,10 @@ function foglalasModalis(f, elo) {
   const termek = A.termek.filter(t => t.aktiv || (f && f.room_id === t.id));
   if (!termek.length) { pirit('Nincs felvett terem. A Termek lapon lehet hozzáadni.', 'hiba'); return; }
   const d = f ? f._k : (elo.datum ? new Date(elo.datum + 'T00:00:00') : kezdoNap(A.nap));
+  const masolat = elo.masolat || null;
   const kezdIdo = f ? hm(f._k) : (elo.kezdet || '08:00');
-  const vegIdo = f ? hm(f._v) : idoPlusz(elo.kezdet || '08:00', 90);
+  const vegIdo = f ? hm(f._v)
+    : idoPlusz(elo.kezdet || '08:00', masolat ? masolat.hossz : 90);
   const roomId = f ? f.room_id : (elo.room_id || (lathatoTermek()[0] || termek[0]).id);
 
   const torzs = `
@@ -1368,8 +1416,10 @@ function foglalasModalis(f, elo) {
       <button type="button" class="btn btn-kis" data-gyors="holnap8">holnap 8:00</button>
       <button type="button" class="btn btn-kis" data-gyors="holnap13">holnap 13:00</button>
     </div>` : ''}
+    ${masolat ? `<p class="modalis-info">Másolat egy meglévő foglalásból — csak a dátumot
+      (és ha kell, az időt) írd át.</p>` : ''}
     <label for="fm-cim">Mi lesz a teremben? <abbr title="kötelező" class="kell">*</abbr></label>
-    <input id="fm-cim" maxlength="200" required value="${esc(f ? f.cim : '')}"
+    <input id="fm-cim" maxlength="200" required value="${esc(f ? f.cim : (masolat ? masolat.cim : ''))}"
       placeholder="pl. Sürgősségi ellátás gyakorlat — IV. évf.">
     <div class="mezo-sor">
       <div><label for="fm-terem">Terem <abbr title="kötelező" class="kell">*</abbr></label>
@@ -1378,7 +1428,8 @@ function foglalasModalis(f, elo) {
             t.ferohely ? ` (${t.ferohely} fő)` : ''}</option>`).join('')}</select></div>
       <div><span class="cimke-sor"><label for="fm-tipus">Típus</label>${sugoJel('Csak jelölés, hogy egy pillantással látszódjon, mi történik a teremben. A napi nézetben a blokk színe ezt követi.')}</span>
         <select id="fm-tipus">${Object.entries(TIPUSOK).map(([k, v]) =>
-          `<option value="${k}" ${f && f.tipus === k ? 'selected' : ''}>${esc(v.nev)}</option>`).join('')}</select></div>
+          `<option value="${k}" ${(f ? f.tipus : (masolat ? masolat.tipus : '')) === k ? 'selected' : ''}>${
+            esc(v.nev)}</option>`).join('')}</select></div>
     </div>
     <p class="terem-allapot" id="fm-szabadsag"></p>
     <p class="sugoszoveg" style="margin-top:.2rem">A jelzés a beírt dátumra és időre vonatkozik, és
@@ -1394,18 +1445,22 @@ function foglalasModalis(f, elo) {
     <div class="mezo-sor">
       <div><span class="cimke-sor"><label for="fm-oktato">Ki tartja</label>${sugoJel('Az oktató neve — lehet más is, mint aki foglal. Ha valaki más nevét írod be, annál a kollégánál megjelenik a Foglalásaim lapon, az „Amit nekem foglaltak” részben.')}</span>
         <input id="fm-oktato" maxlength="120" list="fm-oktato-lista"
-          value="${esc(f ? (f.oktato || '') : (kezelo() ? '' : A.profil.nev))}"
+          value="${esc(f ? (f.oktato || '') : (masolat ? (masolat.oktato || '')
+            : (kezelo() ? '' : A.profil.nev)))}"
           placeholder="${kezelo() ? 'kinek foglalod' : ''}">
         <datalist id="fm-oktato-lista">${
           (A.profilok.length ? A.profilok : [A.profil]).filter(p => p.aktiv !== false)
             .map(p => `<option value="${esc(p.nev)}"></option>`).join('')}</datalist></div>
       <div><label for="fm-letszam">Létszám</label>
-        <input type="number" id="fm-letszam" min="0" max="500" value="${f && f.letszam != null ? f.letszam : ''}"></div>
+        <input type="number" id="fm-letszam" min="0" max="500" value="${
+          f && f.letszam != null ? f.letszam : (masolat && masolat.letszam != null ? masolat.letszam : '')}"></div>
     </div>
     <label for="fm-leiras">Megjegyzés</label>
-    <textarea id="fm-leiras" maxlength="2000" placeholder="Amit a titkárságnak vagy a kollégáknak tudni érdemes.">${esc(f ? (f.leiras || '') : '')}</textarea>
+    <textarea id="fm-leiras" maxlength="2000" placeholder="Amit a titkárságnak vagy a kollégáknak tudni érdemes.">${
+      esc(f ? (f.leiras || '') : (masolat ? (masolat.leiras || '') : ''))}</textarea>
     <span class="cimke-sor"><label for="fm-eszkoz">Eszközigény</label>${sugoJel('Szabad szöveg annak, aki előkészíti a termet: mit kell odakészíteni. Az Eszközök lap nyilvántartásából nem foglal le semmit.')}</span>
-    <input id="fm-eszkoz" maxlength="500" value="${esc(f ? (f.eszkozigeny || '') : '')}"
+    <input id="fm-eszkoz" maxlength="500" value="${
+      esc(f ? (f.eszkozigeny || '') : (masolat ? (masolat.eszkozigeny || '') : ''))}"
       placeholder="pl. 2 db Little Anne, projektor, videolaringoszkóp">
     ${uj ? `
       <div class="mezo-sor">
@@ -1469,7 +1524,14 @@ function foglalasModalis(f, elo) {
         ${esc(t.kod)}: ${u.length ? 'foglalt' : 'szabad'}</span>`;
     }).join('');
 
-    const sajatTerem = termek.find(t => t.id === Number($('#fm-terem', h).value));
+    const valasztott = termek.find(t => t.id === Number($('#fm-terem', h).value));
+    const letszam = Number($('#fm-letszam', h).value);
+    if (valasztott && valasztott.ferohely && letszam > valasztott.ferohely) {
+      fig.textContent = `${esc(valasztott.kod)} befogadóképessége ${valasztott.ferohely} fő, ` +
+        `te ${letszam} főt írtál be. Felvehető, csak szólok.`;
+      fig.hidden = false;
+    }
+    const sajatTerem = valasztott;
     const u = sajatTerem ? utkozik(sajatTerem) : [];
     if (u.length) {
       jelzo.innerHTML = 'Ütközés: ebben a teremben már van foglalás ekkor — ' +
@@ -1486,7 +1548,7 @@ function foglalasModalis(f, elo) {
     elozoKezd = $('#fm-kezd', h).value;
     allapotNez();
   };
-  ['#fm-terem', '#fm-datum', '#fm-veg'].forEach(s => { $(s, h).onchange = allapotNez; });
+  ['#fm-terem', '#fm-datum', '#fm-veg', '#fm-letszam'].forEach(s => { $(s, h).onchange = allapotNez; });
   allapotNez();
 
   if (uj) {
@@ -1706,6 +1768,7 @@ function foglalasAdatlap(f) {
       ezért te nem tudod módosítani. Kérd tőle vagy a titkárságtól (sbo@semmelweis.hu).</p>`}`;
   const lab = `
     <button class="btn balra" data-ics1>Naptárfájl (.ics)</button>
+    <button class="btn" data-masol>Másolás másik napra</button>
     ${szerkeszthet && f.sorozat_id && sorozatTovabbi(f).length
       ? '<button class="btn btn-veszes" data-sorozat>Sorozat többi alkalma…</button>' : ''}
     <button class="btn" data-megse>Bezárás</button>
@@ -1713,6 +1776,18 @@ function foglalasAdatlap(f) {
   const h = modalis({ cim: f.cim, torzs, lab });
   $('[data-megse]', h).onclick = () => zarModalis();
   $('[data-ics1]', h).onclick = () => icsLetolt([f]);
+  $('[data-masol]', h).onclick = () => {
+    zarModalis();
+    foglalasModalis(null, {
+      datum: ymd(napPlusz(f._k, 7)),
+      kezdet: hm(f._k),
+      room_id: f.room_id,
+      masolat: {
+        cim: f.cim, tipus: f.tipus, oktato: f.oktato, letszam: f.letszam,
+        leiras: f.leiras, eszkozigeny: f.eszkozigeny, hossz: Math.round((f._v - f._k) / 60000),
+      },
+    });
+  };
   if (szerkeszthet) $('[data-mod]', h).onclick = () => foglalasModalis(f, {});
   const sorozatGomb = $('[data-sorozat]', h);
   if (sorozatGomb) sorozatGomb.onclick = () => sorozatKezelo(f);
@@ -2983,6 +3058,9 @@ function sugoHtml() {
         A sajátodat te módosíthatod; bárki foglalását a titkárság és a rendszergazda.</li>
       <li><strong>Lemondás</strong>: a foglalás áthúzva látszik tovább (tehát nyoma marad), de a terem
         felszabadul. Ha véglegesen nem kell, a törlés is elérhető.</li>
+      <li><strong>Másolás másik napra</strong>: egy meglévő foglalás adatlapjáról indítva az űrlap
+        minden mezője kitöltve nyílik meg, csak a dátumot kell átírni (alapból a következő hetet
+        ajánlja). Pótláshoz és ismétlődő oktatáshoz ez a leggyorsabb.</li>
       <li><strong>Naptárfájl (.ics)</strong>: a megjelenített időszakot vagy egy foglalást letöltöd, és
         megnyitva bekerül az Outlook-naptáradba. Ez egyszeri másolat, nem élő összekötés — a későbbi
         módosítás nem követi.</li>
@@ -2998,6 +3076,8 @@ function sugoHtml() {
       <li><strong>Lista</strong>: egyszerű felsorolás keresővel, telefonon ez a legkényelmesebb.</li>
       <li>A színes szűrőgombokkal egy-egy termet be- és kikapcsolhatod a nézetben; ilyenkor egy csík
         jelzi, hogy szűrve látod a naptárat.</li>
+      <li>A heti nézet fejlécében ott az <strong>oktatási hét sorszáma</strong> is (pl. „34. hét”),
+        és a „Ma” gomb aranyszínű aláhúzást kap, ha épp a mai időszakot nézed.</li>
       <li>A <strong>Foglalásaim</strong> lapon a saját foglalásaid vannak együtt, és külön az is,
         amit más foglalt neked (ha a „Ki tartja” mezőbe a te neved írták).</li>
     </ul>
