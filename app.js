@@ -7,8 +7,13 @@
 const VERZIO = 'v1.2';
 const VERZIONAPLO = [
   ['v1.2', '2026. augusztus 14.', [
-    'Teljes tevékenységnapló: egy helyen látszik, ki mit vett fel, módosított vagy törölt (foglalás, eszköz, terem), szűrőkkel és kereséssel.',
+    'Új Hónap nézet: az egész hónap egy lapon, naponta a foglalások felsorolásával.',
+    'Teljes tevékenységnapló: egy helyen látszik, ki mit vett fel, módosított vagy törölt (foglalás, eszköz, terem), szűrőkkel, kereséssel és Excel-letöltéssel.',
+    'Magyarázó kérdőjelek a felületen: koppintásra elmondják, mire jó egy mező vagy gomb.',
     'Új Kapcsolat lap: kihez lehet fordulni, és hogyan jelezhető hiba.',
+    'Foglalásaim: már minden foglalásod látszik, nem csak a naptárban megjelenített időszak; és megtaláljuk azt is, amit más a te nevedre foglalt (a „Dr.” előtag nem zavar).',
+    'Ismétlődő sorozat későbbi alkalmai egy lépésben törölhetők; a munkaszüneti napokra eső alkalmakat jelzi.',
+    'Foglalás lemondása (áthúzva megmarad, a terem felszabadul), foglalások letöltése Excelbe, heti kihasználtság a Termek lapon.',
     'Ez a verziónapló a Súgó alján.',
   ]],
   ['v1.1', '2026. augusztus 14.', [
