@@ -194,9 +194,18 @@ main{padding:1rem; max-width:1500px; margin:0 auto}
 .racs-fej.ma{background:var(--kek-halvany); color:var(--kek)}
 .racs-fej .nap-szam{display:block; font-size:1.15rem; font-weight:700; color:var(--szoveg)}
 .racs-fej.ma .nap-szam{color:var(--kek)}
-.racs-fej.unnep .nap-szam,.racs-fej.hetvege .nap-szam{color:var(--piros)}
+.racs-fej.jelleg-munkaszuneti .nap-szam,.racs-fej.jelleg-pihenonap .nap-szam,
+.racs-fej.jelleg-hetvege .nap-szam{color:var(--piros)}
 .racs-fej .unnep-nev{display:block; font-size:.62rem; color:var(--piros); font-weight:600;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+/* áthelyezett (ledolgozós) munkanap: hangsúlyosan munkanap, nem hétvége */
+.racs-fej.jelleg-athelyezett-munkanap .nap-szam{color:var(--zold)}
+.racs-fej.jelleg-athelyezett-munkanap .unnep-nev{color:var(--zold)}
+.honap-cella.jelleg-athelyezett-munkanap{background:#f4fbf7}
+.honap-cella.jelleg-athelyezett-munkanap .honap-unnep{color:var(--zold)}
+.honap-cella.jelleg-pihenonap{background:#fdf6f7}
+.munkarend-sav{margin:.2rem 0 .6rem}
+.szuro-sav.munkarend-figyelem{background:#fdf5e4; border-color:#f0dcae; color:#7a5406}
 .ido-tengely{position:sticky; left:0; z-index:15; background:#fff;
   border-right:1px solid var(--vonal)}
 .ido-sav{
@@ -442,6 +451,14 @@ abbr.kell{color:var(--piros); text-decoration:none; cursor:help}
 .kpi-gomb .kpi-cimke,.kpi-gomb .kpi-ertek,.kpi-gomb .kpi-alsor{display:block}
 
 tr.nem-hasznalt{opacity:.6}
+.nem-hasznalt-blokk{margin-top:1.2rem; border-left:4px solid var(--szoveg-halkabb); background:#fafbfd}
+.nem-hasznalt-blokk h2{font-size:1.05rem}
+.muvelet-cella{white-space:nowrap}
+.muvelet-cella .btn{margin-right:.25rem}
+@media (max-width:820px){
+  .muvelet-cella{display:flex; gap:.4rem; padding-top:.5rem !important}
+  .muvelet-cella .btn{flex:1; margin:0}
+}
 input.mentve,select.mentve{background:#e8f7ee; border-color:var(--zold)}
 
 .agenda-jel{display:flex; flex-direction:column; gap:.2rem; align-items:flex-end}
