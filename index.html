@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=202608141330">
+<link rel="stylesheet" href="app.css?v=202608141340">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23232f61'/%3E%3Cpath d='M7 12h18M7 12v13h18V12M7 12l2-4h14l2 4' stroke='%23e3d496' stroke-width='2' fill='none'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -79,6 +79,22 @@
       </div>
     </div>
     <nav class="menu" id="menu"></nav>
+    <div class="tamogatok">
+      <button class="ikon-gomb" id="harang-gomb" aria-haspopup="true" aria-expanded="false"
+        title="Értesítéseim" aria-label="Értesítéseim">
+        <span aria-hidden="true">🔔</span><span class="harang-szam" id="harang-szam" hidden>0</span>
+      </button>
+      <button class="ikon-gomb" data-lap="uzenofal" title="Üzenőfal" aria-label="Üzenőfal">
+        <span aria-hidden="true">💬</span></button>
+      <button class="ikon-gomb" data-lap="sugo" title="Súgó" aria-label="Súgó">
+        <span aria-hidden="true">?</span></button>
+      <button class="ikon-gomb" data-lap="javaslat" title="Visszajelzés, hibabejelentés"
+        aria-label="Visszajelzés">
+        <span aria-hidden="true">✍</span></button>
+      <button class="ikon-gomb" data-lap="kapcsolat" title="Kapcsolat" aria-label="Kapcsolat">
+        <span aria-hidden="true">☎</span></button>
+      <div class="legordulo harang-lista" id="harang-lista" hidden></div>
+    </div>
     <div class="fejlec-jobb">
       <button class="felh-gomb" id="felh-gomb" aria-haspopup="true" aria-expanded="false">
         <span id="felh-nev">…</span> <span class="nyil">▾</span>
@@ -121,6 +137,6 @@
       'jelezd a titkárságnak.';
   }
 </script>
-<script src="app.js?v=202608141330"></script>
+<script src="app.js?v=202608141340"></script>
 </body>
 </html>

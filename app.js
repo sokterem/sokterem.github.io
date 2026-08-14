@@ -4,8 +4,15 @@
    ══════════════════════════════════════════════════════════════════════ */
 'use strict';
 
-const VERZIO = 'v1.5';
+const VERZIO = 'v1.6';
 const VERZIONAPLO = [
+  ['v1.6', '2026. augusztus 14.', [
+    'Üzenőfal a kollégáknak, kiemelhető bejegyzésekkel.',
+    'Hozzászólások minden foglalás adatlapján.',
+    'Megemlítés @ jellel a belépett kollégák közül, és harang-értesítés annak, akit érint (megemlítés, hozzászólás, neki szóló foglalás).',
+    'A fejlécben külön gombok: üzenőfal, súgó, visszajelzés, kapcsolat.',
+    'Átépített fiókkezelő: keresés, szerep szerinti csoportosítás, fiók-adatlap.',
+  ]],
   ['v1.5', '2026. augusztus 14.', [
     '„Most” sáv a naptár tetején: egy pillantással látszik, melyik terem szabad éppen és meddig.',
     'Szabad terem keresése: idő, hossz, létszám és felszerelés szerint — a foglalt termeknél megmondja, mikortól szabadulnak fel, és egy kattintással lehet foglalni.',
@@ -69,6 +76,7 @@ const A = {
   nap: kezdoNap(new Date()),          // a megjelenített hét/nap kezdete
   rejtettTermek: new Set(),
   kereso: '',
+  fiokKereso: '',
   eszkSzuro: { szo: '', kat: new Set(['oktatasi', 'it']), room: '', allapot: '', inaktiv: false },
   naploSzuro: { tipus: '', ki: '', szo: '' },
   utolsoTevekenyseg: Date.now(),
@@ -81,6 +89,7 @@ const A = {
   racsElsoRajz: true,
   rajzJel: 0,
   sajatFoglalasok: null,
+  ertesitesek: [],
   naptarKivetel: {},        // 'YYYY-MM-DD' -> {tipus, nev, forras}
   naptarEvek: new Set(),    // mely évekre van hiteles munkarend-adat
 };
@@ -672,13 +681,30 @@ const LAPOK = [
   ['naplo', 'Napló', () => true],
   ['fiokok', 'Fiókok', admin],
 ];
-const MENU_NELKULI_LAPOK = ['fiokom', 'javaslat', 'kapcsolat', 'sugo'];
+const MENU_NELKULI_LAPOK = ['fiokom', 'javaslat', 'kapcsolat', 'sugo', 'uzenofal'];
 
 function menuEpit() {
   $('#menu').innerHTML = LAPOK.filter(([, , joge]) => joge())
     .map(([k, n]) => `<button data-lap="${k}">${esc(n)}</button>`).join('');
   $$('#menu button').forEach(b => b.onclick = () => lapNyit(b.dataset.lap));
 }
+
+$$('.tamogatok [data-lap]').forEach(b => b.onclick = () => {
+  $('#harang-lista').hidden = true;
+  lapNyit(b.dataset.lap);
+});
+$('#harang-gomb').addEventListener('click', e => {
+  e.stopPropagation();
+  const l = $('#harang-lista');
+  const nyit = l.hidden;
+  l.hidden = !nyit;
+  $('#harang-gomb').setAttribute('aria-expanded', String(nyit));
+  if (nyit) harangLista();
+});
+document.addEventListener('click', e => {
+  const l = $('#harang-lista');
+  if (l && !l.hidden && !e.target.closest('.tamogatok')) l.hidden = true;
+});
 
 $('#felh-gomb').addEventListener('click', e => {
   e.stopPropagation();
@@ -714,7 +740,7 @@ async function adatokBetolt() {
   A.termek = termek.data || [];
   if (profilok.error) console.error('Profilok betöltése:', profilok.error);
   A.profilok = profilok.data || [];
-  await Promise.all([foglalasokBetolt(), eszkozokBetolt()]);
+  await Promise.all([foglalasokBetolt(), eszkozokBetolt(), ertesitesekBetolt()]);
   A.utolsoFrissites = new Date();
 }
 
@@ -749,6 +775,69 @@ async function foglalasokBetolt(jel) {
   A.foglalasok = (data || []).map(f => ({ ...f, _k: new Date(f.kezdet), _v: new Date(f.veg) }));
 }
 
+async function ertesitesekBetolt() {
+  const { data, error } = await sb.from('ertesites').select('*')
+    .order('mikor', { ascending: false }).limit(50);
+  if (error) { console.error('Értesítések:', error); return; }
+  A.ertesitesek = data || [];
+  harangFrissit();
+}
+
+function harangFrissit() {
+  const olvasatlan = A.ertesitesek.filter(e => !e.olvasva).length;
+  const jel = $('#harang-szam');
+  if (!jel) return;
+  jel.textContent = olvasatlan > 9 ? '9+' : String(olvasatlan);
+  jel.hidden = !olvasatlan;
+  $('#harang-gomb').title = olvasatlan ? `${olvasatlan} új értesítés` : 'Értesítéseim';
+}
+
+function harangLista() {
+  const lista = $('#harang-lista');
+  const sorok = A.ertesitesek;
+  lista.innerHTML = `
+    <div class="harang-fej"><strong>Értesítéseim</strong>
+      ${sorok.some(e => !e.olvasva)
+        ? '<button class="btn btn-kis" data-mind-olvasott>Mind olvasott</button>' : ''}</div>
+    ${sorok.length ? sorok.map(e => `
+      <button class="ertesites-sor ${e.olvasva ? '' : 'olvasatlan'}" data-ert="${e.id}">
+        <span class="ertesites-szoveg">${esc(e.szoveg)}</span>
+        <span class="ertesites-ido">${new Date(e.mikor).toLocaleString('hu-HU')}</span>
+      </button>`).join('')
+      : '<p class="halk" style="padding:.7rem .6rem; margin:0">Nincs értesítésed.</p>'}`;
+
+  const mind = $('[data-mind-olvasott]', lista);
+  if (mind) mind.onclick = async e => {
+    e.stopPropagation();
+    try {
+      await sb.from('ertesites').update({ olvasva: true }).eq('cimzett_id', A.user.id).eq('olvasva', false);
+      A.ertesitesek.forEach(x => { x.olvasva = true; });
+      harangFrissit(); harangLista();
+    } catch (err) { hibaKi(err); }
+  };
+  $$('[data-ert]', lista).forEach(b => b.onclick = async () => {
+    const ert = A.ertesitesek.find(x => x.id === Number(b.dataset.ert));
+    lista.hidden = true;
+    if (!ert) return;
+    if (!ert.olvasva) {
+      ert.olvasva = true;
+      harangFrissit();
+      sb.from('ertesites').update({ olvasva: true }).eq('id', ert.id).then(() => {}, () => {});
+    }
+    const hiv = ert.hivatkozas || {};
+    if (hiv.lap === 'uzenofal') { lapNyit('uzenofal'); return; }
+    if (hiv.foglalas) {
+      if (hiv.kezdet) { A.nap = kezdoNap(new Date(hiv.kezdet)); await foglalasokBetolt(); }
+      lapNyit('naptar');
+      const f = A.foglalasok.find(x => x.id === Number(hiv.foglalas));
+      if (f) foglalasAdatlap(f);
+      else pirit('Ez a foglalás már nem létezik.', '');
+      return;
+    }
+    lapNyit('naptar');
+  });
+}
+
 async function eszkozokBetolt() {
   const { data, error } = await sb.from('equipment').select('*').order('nev').order('leltarszam');
   if (error) throw error;
@@ -770,7 +859,14 @@ async function hatterFrissites() {
   try {
     const elotteF = foglalasLenyomat();
     let elotteE = null;
+    const olvasatlanElotte = A.ertesitesek.filter(e => !e.olvasva).length;
     await foglalasokBetolt();
+    await ertesitesekBetolt();
+    const ujErtesites = A.ertesitesek.filter(e => !e.olvasva).length - olvasatlanElotte;
+    if (ujErtesites > 0) {
+      pirit(ujErtesites === 1 ? 'Új értesítésed érkezett (harang a fejlécben).'
+        : `${ujErtesites} új értesítésed érkezett.`, '');
+    }
     if (A.lap === 'eszkozok' && !gepel) { elotteE = eszkozLenyomat(); await eszkozokBetolt(); }
     A.utolsoFrissites = new Date();
     if (A.frissitesHiba) { A.frissitesHiba = false; }
@@ -834,6 +930,12 @@ async function lapKirajzol() {
         c.innerHTML = html; naploKotes(); break;
       }
       case 'kapcsolat':   c.innerHTML = kapcsolatHtml(); break;
+      case 'uzenofal': {
+        c.innerHTML = '<div class="betolt"><span class="porgo"></span> Üzenőfal betöltése…</div>';
+        const html = await uzenofalHtml();
+        if (idejemult()) return;
+        c.innerHTML = html; uzenofalKotes(); break;
+      }
       case 'fiokom':      c.innerHTML = fiokomHtml(); fiokomKotes(); break;
       case 'javaslat': {
         c.innerHTML = '<div class="betolt"><span class="porgo"></span> Betöltés…</div>';
@@ -1943,7 +2045,11 @@ function foglalasAdatlap(f) {
         sorozatTovabbi(f).length ? ` · még ${sorozatTovabbi(f).length} későbbi alkalom` : ''}</dd></div>` : ''}
     </dl>
     ${szerkeszthet ? '' : `<p class="modalis-info">Ezt a foglalást ${esc(f.szerzo_nev)} vette fel,
-      ezért te nem tudod módosítani. Kérd tőle vagy a titkárságtól (sbo@semmelweis.hu).</p>`}`;
+      ezért te nem tudod módosítani. Kérd tőle vagy a titkárságtól (sbo@semmelweis.hu).</p>`}
+    <div id="hozzaszolasok" class="hozzaszolas-lista">
+      <h3 class="szakasz">Hozzászólások ${sugoJel('Ide írhatsz a foglaláshoz — például cserét kérsz, vagy jelzed, hogy elmarad. A foglalás gazdája és az oktató értesítést kap róla. A @ jellel bárki mást is megemlíthetsz.')}</h3>
+      <div class="betolt"><span class="porgo"></span> betöltés…</div>
+    </div>`;
   const lab = `
     <button class="btn balra" data-ics1>Naptárfájl (.ics)</button>
     <button class="btn" data-masol>Másolás másik napra</button>
@@ -1969,6 +2075,60 @@ function foglalasAdatlap(f) {
   if (szerkeszthet) $('[data-mod]', h).onclick = () => foglalasModalis(f, {});
   const sorozatGomb = $('[data-sorozat]', h);
   if (sorozatGomb) sorozatGomb.onclick = () => sorozatKezelo(f);
+  hozzaszolasokBetolt(f, h);
+}
+
+/* egy foglalás hozzászólásai — betöltés, írás, törlés */
+async function hozzaszolasokBetolt(f, h) {
+  const tarto = $('#hozzaszolasok', h);
+  if (!tarto || !document.body.contains(tarto)) return;
+  const { data, error } = await sb.from('foglalas_hozzaszolas').select('*')
+    .eq('booking_id', f.id).order('mikor').limit(200);
+  if (!document.body.contains(tarto)) return;
+  const lista = data || [];
+  tarto.innerHTML = `
+    <h3 class="szakasz">Hozzászólások ${lista.length ? `(${lista.length})` : ''}
+      ${sugoJel('Ide írhatsz a foglaláshoz — például cserét kérsz, vagy jelzed, hogy elmarad. A foglalás gazdája és az oktató értesítést kap róla. A @ jellel bárki mást is megemlíthetsz.')}</h3>
+    ${error ? `<p class="modalis-hiba">${esc(hibaSzoveg(error))}</p>` : ''}
+    ${lista.map(u => `<div class="hozzaszolas">
+      <div class="hozzaszolas-fej">
+        <strong>${esc(u.szerzo_nev || '')}</strong>
+        <span>${new Date(u.mikor).toLocaleString('hu-HU')}</span>
+        ${(u.szerzo_id === A.user.id || kezelo())
+          ? `<button class="btn btn-kis btn-veszes" data-hozza-torol="${u.id}"
+               style="margin-left:auto">Törlés</button>` : ''}
+      </div>
+      <div class="hozzaszolas-szoveg">${emlitesekKiemelve(u.szoveg)}</div>
+    </div>`).join('')}
+    <label for="hozza-szoveg" class="rejtett-szoveg">Hozzászólás</label>
+    <textarea id="hozza-szoveg" maxlength="2000" style="min-height:60px; margin-top:.5rem"
+      placeholder="Hozzászólás… (@ jellel megemlíthetsz valakit)"></textarea>
+    <div class="fal-muvelet" style="justify-content:flex-end">
+      <button class="btn btn-kis btn-fo" data-hozza-kuld>Hozzászólás küldése</button>
+    </div>`;
+
+  const mezo = $('#hozza-szoveg', tarto);
+  if (mezo) emlitesKiegeszito(mezo);
+  const kuld = $('[data-hozza-kuld]', tarto);
+  if (kuld) kuld.onclick = async () => {
+    const szoveg = mezo.value.trim();
+    if (!szoveg) { pirit('Írj be valamit.', 'hiba'); return; }
+    kuld.disabled = true;
+    try {
+      ellenoriz(await sb.from('foglalas_hozzaszolas').insert({
+        booking_id: f.id, szoveg, szerzo_id: A.user.id, szerzo_nev: A.profil.nev }).select('id'));
+      await hozzaszolasokBetolt(f, h);
+      pirit('Hozzászólás elküldve.', 'siker');
+    } catch (e) { hibaKi(e); kuld.disabled = false; }
+  };
+  $$('[data-hozza-torol]', tarto).forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try {
+      ellenoriz(await sb.from('foglalas_hozzaszolas').delete()
+        .eq('id', Number(b.dataset.hozzaTorol)).select('id'), 'Ezt közben már törölték.');
+      await hozzaszolasokBetolt(f, h);
+    } catch (e) { hibaKi(e); b.disabled = false; }
+  });
 }
 
 /* ugyanabból a sorozatból a mostani alkalommal együtt következő alkalmak */
@@ -2866,90 +3026,177 @@ function teremModalis(t) {
 
 /* ══════════════════════════════════════════════════ fiókok ══ */
 function fiokokHtml() {
+  const keres = normal(A.fiokKereso || '');
+  const szurt = A.profilok.filter(p => !keres ||
+    normal([p.nev, p.email, p.beosztas].filter(Boolean).join(' ')).includes(keres));
+  const csoport = { admin: [], titkarsag: [], oktato: [] };
+  szurt.forEach(p => (csoport[p.szerep] || csoport.oktato).push(p));
+  const kezdoJelszos = A.profilok.filter(p => p.jelszo_csere).length;
+  const sohaSem = A.profilok.filter(p => !p.utolso_belepes).length;
+
+  const kartya = p => {
+    const sajatDb = A.foglalasok.filter(f => f.szerzo_id === p.id).length;
+    return `<div class="fiok-kartya ${p.aktiv ? '' : 'tiltott'}">
+      <div class="fiok-fo">
+        <span class="fiok-nev">${esc(p.nev)}${p.id === A.user.id ? ' <span class="halk">(te)</span>' : ''}</span>
+        <span class="fiok-meta">${esc(p.beosztas || '')}${p.beosztas ? ' · ' : ''}${esc(p.email || '')}</span>
+        <span class="fiok-jelzok">
+          ${p.aktiv ? '' : '<span class="jelzo jelzo-piros">nem léphet be</span>'}
+          ${p.jelszo_csere ? '<span class="jelzo jelzo-sarga">jelszócsere vár</span>' : ''}
+          ${p.utolso_belepes
+            ? `<span class="jelzo jelzo-szurke">belépett: ${new Date(p.utolso_belepes).toLocaleDateString('hu-HU')}</span>`
+            : '<span class="jelzo jelzo-szurke">még nem lépett be</span>'}
+          ${sajatDb ? `<span class="jelzo jelzo-kek">${sajatDb} foglalás</span>` : ''}
+        </span>
+      </div>
+      <div class="gomb-sor">
+        <button class="btn btn-kis" data-fiok="${p.id}">Adatlap</button>
+      </div>
+    </div>`;
+  };
+
+  const blokk = (kulcs, cim, magyarazat) => `
+    <div class="kartya">
+      <div class="kartya-fej"><h2>${cim} <span class="halk">${csoport[kulcs].length} fő</span>
+        ${sugoJel(magyarazat)}</h2></div>
+      ${csoport[kulcs].length ? csoport[kulcs].map(kartya).join('')
+        : '<p class="halk">Nincs ilyen fiók a keresésnek megfelelően.</p>'}
+    </div>`;
+
   return `
-  <div class="kartya">
-    <div class="kartya-fej"><h2>Fiókok</h2>
-      <span class="halk">${A.profilok.length} fiók</span></div>
-    <div class="tabla-tarto"><table>
-      <thead><tr><th>Név</th><th>E-mail-cím</th><th>Beosztás</th>
-        <th>Szerep ${sugoJel('oktató: foglal, a sajátját módosítja, eszközadatot ír. titkárság: bárki foglalását módosíthatja, termet szerkeszt. rendszergazda: ezen felül fiókokat kezel, és véglegesen törölhet.')}</th>
-        <th>Beléphet ${sugoJel('A „nem” azonnal kizárja az illetőt, de a foglalásai és a naplóbejegyzései megmaradnak.')}</th>
-        <th>Jelszócsere kérve ${sugoJel('Ha „igen”, a következő belépésnél a rendszer új jelszót kér tőle. Első belépéskor ez automatikusan bekapcsol.')}</th>
-        <th>Utolsó belépés</th>
-        <th><span class="rejtett-szoveg">Műveletek</span></th></tr></thead>
-      <tbody>${A.profilok.map(p => `
-        <tr data-profil="${p.id}">
-          <td data-cimke="Név"><strong>${esc(p.nev)}</strong>${p.id === A.user.id ? ' (te)' : ''}</td>
-          <td data-cimke="E-mail-cím" class="halk">${esc(p.email || '')}</td>
-          <td data-cimke="Beosztás" class="halk">${esc(p.beosztas || '')}</td>
-          <td data-cimke="Szerep"><select data-pmezo="szerep" aria-label="Szerep">${
-            Object.entries(SZEREPEK).map(([k, n]) =>
-            `<option value="${k}" ${p.szerep === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></td>
-          <td data-cimke="Beléphet"><select data-pmezo="aktiv" aria-label="Beléphet">
-            <option value="1" ${p.aktiv ? 'selected' : ''}>igen</option>
-            <option value="0" ${!p.aktiv ? 'selected' : ''}>nem</option></select></td>
-          <td data-cimke="Jelszócsere kérve"><select data-pmezo="jelszo_csere" aria-label="Jelszócsere kérve">
-            <option value="1" ${p.jelszo_csere ? 'selected' : ''}>igen</option>
-            <option value="0" ${!p.jelszo_csere ? 'selected' : ''}>nem</option></select></td>
-          <td data-cimke="Utolsó belépés" class="halk">${p.utolso_belepes
-            ? new Date(p.utolso_belepes).toLocaleString('hu-HU') : 'még nem lépett be'}</td>
-          <td><button class="btn btn-kis" data-jelszo-mail="${esc(p.email || '')}"
-            data-nev="${esc(p.nev)}">Jelszó-visszaállító levél</button></td>
-        </tr>`).join('')}</tbody>
-    </table></div>
-    <p class="sugoszoveg">A <strong>titkárság</strong> szerep bárki foglalását módosíthatja és termet
-      szerkeszthet; a <strong>rendszergazda</strong> ezen felül fiókokat kezel, termet és eszközt
-      véglegesen törölhet. Új kolléga felvételét a rendszergazda tudja elvégezni.</p>
-  </div>`;
+  <div class="kpi-sor">
+    <div class="kpi"><div class="kpi-cimke">Fiókok</div>
+      <div class="kpi-ertek">${A.profilok.length}</div>
+      <div class="kpi-alsor">${A.profilok.filter(p => p.aktiv).length} beléphet</div></div>
+    <div class="kpi"><div class="kpi-cimke">Jelszócsere vár</div>
+      <div class="kpi-ertek">${kezdoJelszos}</div>
+      <div class="kpi-alsor">első belépéskor újat kér</div></div>
+    <div class="kpi"><div class="kpi-cimke">Még nem lépett be</div>
+      <div class="kpi-ertek">${sohaSem}</div>
+      <div class="kpi-alsor">érdemes megkeresni őket</div></div>
+  </div>
+
+  <div class="eszkoztar">
+    <input type="search" id="fiok-kereso" aria-label="Keresés a fiókok között"
+      placeholder="Keresés: név, e-mail, beosztás…" value="${esc(A.fiokKereso || '')}"
+      style="flex:1 1 240px; max-width:360px">
+    <span class="tolto"></span>
+    <span class="halk apro">Új kolléga felvétele szerveroldali művelet — a leírásban van hozzá szkript.</span>
+  </div>
+
+  ${blokk('admin', 'Rendszergazda', 'Mindent lát és kezel: fiókok, termek, végleges törlés, napló.')}
+  ${blokk('titkarsag', 'Titkárság', 'Bárki foglalását módosíthatja és törölheti, termet szerkeszt, teljes naplót lát. Fiókot nem kezel.')}
+  ${blokk('oktato', 'Oktatók', 'Foglal, a sajátját módosítja, eszközadatot ír, a munkára vonatkozó naplót látja.')}`;
 }
 
 function fiokokKotes() {
-  $$('tr[data-profil]').forEach(tr => {
-    const id = tr.dataset.profil;
-    const p = A.profilok.find(x => x.id === id) || {};
-    $$('[data-pmezo]', tr).forEach(m => {
-      const eredeti = m.value;
-      m.onchange = async () => {
-        const mezo = m.dataset.pmezo;
-        const ertek = mezo === 'szerep' ? m.value : m.value === '1';
-        const ment = async () => {
-          m.disabled = true;
-          try {
-            ellenoriz(await sb.from('profiles').update({ [mezo]: ertek }).eq('id', id).select('id'));
-            const cel = A.profilok.find(x => x.id === id);
-            if (cel) cel[mezo] = ertek;
-            if (id === A.user.id && mezo === 'szerep') {
-              pirit('A saját szerepedet módosítottad, újratöltöm a felületet.', 'siker');
-              setTimeout(() => location.reload(), 900);
-              return;
-            }
-            m.value = mezo === 'szerep' ? ertek : (ertek ? '1' : '0');
-            pirit('Mentve.', 'siker');
-          } catch (e) { m.value = eredeti; hibaKi(e); } finally { m.disabled = false; }
-        };
-        if (mezo === 'aktiv' && ertek === false) {
-          megerosit('Belépés letiltása',
-            `Letiltod <strong>${esc(p.nev)}</strong> belépését? Utána nem tud belépni,
-             de a foglalásai megmaradnak.`, 'Letiltás', ment);
-          m.value = eredeti;
-          return;
-        }
-        await ment();
-      };
-    });
-  });
-  $$('[data-jelszo-mail]').forEach(b => b.onclick = () => {
-    const email = b.dataset.jelszoMail;
-    if (!email) { pirit('Ehhez a fiókhoz nincs e-mail-cím.', 'hiba'); return; }
+  const kereso = $('#fiok-kereso');
+  if (kereso) {
+    let ido;
+    kereso.oninput = e => {
+      clearTimeout(ido);
+      const ertek = e.target.value, poz = e.target.selectionStart;
+      ido = setTimeout(() => {
+        A.fiokKereso = ertek;
+        lapKirajzol();
+        const uj = $('#fiok-kereso');
+        if (uj) { uj.focus(); uj.setSelectionRange(poz, poz); }
+      }, 300);
+    };
+  }
+  $$('[data-fiok]').forEach(b => b.onclick = () => fiokAdatlap(b.dataset.fiok));
+}
+
+/* egy fiók adatlapja: szerep, belépés, jelszócsere, jelszó-visszaállító levél */
+function fiokAdatlap(id) {
+  const p = A.profilok.find(x => x.id === id);
+  if (!p) { pirit('Ez a fiók már nincs a listában.', 'hiba'); return; }
+  const sajatFoglalasok = A.foglalasok.filter(f => f.szerzo_id === p.id);
+  const torzs = `
+    <dl>
+      <div class="adatsor"><dt>Név</dt><dd><strong>${esc(p.nev)}</strong></dd></div>
+      <div class="adatsor"><dt>E-mail-cím</dt><dd>${esc(p.email || '—')}</dd></div>
+      <div class="adatsor"><dt>Beosztás</dt><dd>${esc(p.beosztas || '—')}</dd></div>
+      <div class="adatsor"><dt>Utolsó belépés</dt>
+        <dd>${p.utolso_belepes ? new Date(p.utolso_belepes).toLocaleString('hu-HU')
+          : '<span class="halk">még nem lépett be</span>'}</dd></div>
+      <div class="adatsor"><dt>Foglalásai</dt>
+        <dd>${sajatFoglalasok.length} a betöltött időszakban</dd></div>
+    </dl>
+
+    <h3 class="szakasz">Jogosultság</h3>
+    <div class="mezo-sor">
+      <div><label for="fa-szerep">Szerep</label>
+        <select id="fa-szerep">${Object.entries(SZEREPEK).map(([k, n]) =>
+          `<option value="${k}" ${p.szerep === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+      <div><label for="fa-aktiv">Beléphet</label>
+        <select id="fa-aktiv"><option value="1" ${p.aktiv ? 'selected' : ''}>igen</option>
+          <option value="0" ${!p.aktiv ? 'selected' : ''}>nem</option></select></div>
+      <div><label for="fa-csere">Jelszócsere kérve</label>
+        <select id="fa-csere"><option value="1" ${p.jelszo_csere ? 'selected' : ''}>igen</option>
+          <option value="0" ${!p.jelszo_csere ? 'selected' : ''}>nem</option></select></div>
+    </div>
+    <p class="sugoszoveg">A „jelszócsere kérve” a következő belépésnél kötelezően új jelszót kér tőle.
+      A letiltott fiók nem tud belépni, de a foglalásai és a naplóbejegyzései megmaradnak.</p>
+    <p class="modalis-hiba" id="fa-hiba" hidden></p>`;
+  const lab = `
+    <button class="btn balra" data-jelszo-level>Jelszó-visszaállító levél</button>
+    <button class="btn" data-megse>Bezárás</button>
+    <button class="btn btn-fo" data-ment>Mentés</button>`;
+  const h = modalis({ cim: p.nev, torzs, lab, zarKerdes: true });
+  const hiba = m => { const e = $('#fa-hiba', h); e.textContent = m; e.hidden = false; };
+  $('[data-megse]', h).onclick = () => zarKerdessel();
+
+  $('[data-jelszo-level]', h).onclick = () => {
+    if (!p.email) { pirit('Ehhez a fiókhoz nincs e-mail-cím.', 'hiba'); return; }
     megerosit('Jelszó-visszaállító levél',
-      `Elküldjük <strong>${esc(b.dataset.nev)}</strong> részére a jelszó-visszaállító levelet a
-       ${esc(email)} címre. A levélben lévő linkkel tud új jelszót megadni.`, 'Elküldés', async () => {
-        const { error } = await sb.auth.resetPasswordForEmail(email, {
+      `Elküldjük <strong>${esc(p.nev)}</strong> részére a jelszó-visszaállító levelet a
+       ${esc(p.email)} címre. A levélben lévő linkkel tud új jelszót megadni.<br>
+       <span class="halk">A levelező óránként két levelet enged az egész rendszerre.</span>`,
+      'Elküldés', async () => {
+        const { error } = await sb.auth.resetPasswordForEmail(p.email, {
           redirectTo: location.origin + location.pathname });
         if (error) throw error;
-        pirit('Levél elküldve: ' + email, 'siker');
+        pirit('Levél elküldve: ' + p.email, 'siker');
       }, false);
-  });
+  };
+
+  $('[data-ment]', h).onclick = async () => {
+    const uj = {
+      szerep: $('#fa-szerep', h).value,
+      aktiv: $('#fa-aktiv', h).value === '1',
+      jelszo_csere: $('#fa-csere', h).value === '1',
+    };
+    const valtozott = Object.keys(uj).filter(k => uj[k] !== p[k]);
+    if (!valtozott.length) { zarModalis(); pirit('Nem változott semmi.', ''); return; }
+    const ment = async () => {
+      const gomb = $('[data-ment]', h);
+      gomb.disabled = true;
+      if (modalisAllapot) modalisAllapot.ment = true;
+      try {
+        ellenoriz(await sb.from('profiles').update(uj).eq('id', p.id).select('id'));
+        Object.assign(p, uj);
+        if (p.id === A.user.id && uj.szerep !== A.profil.szerep) {
+          pirit('A saját szerepedet módosítottad, újratöltöm a felületet.', 'siker');
+          setTimeout(() => location.reload(), 900);
+          return;
+        }
+        zarMindenModalist();
+        lapKirajzol();
+        pirit('Mentve.', 'siker');
+      } catch (e) {
+        if (modalisAllapot) modalisAllapot.ment = false;
+        gomb.disabled = false; hiba(hibaSzoveg(e));
+      }
+    };
+    if (uj.aktiv === false && p.aktiv) {
+      megerosit('Belépés letiltása',
+        `Letiltod <strong>${esc(p.nev)}</strong> belépését? Utána nem tud belépni,
+         de a foglalásai megmaradnak.`, 'Letiltás', ment);
+      return;
+    }
+    await ment();
+  };
 }
 
 /* ══════════════════════════════════════════════════ napló ══ */
@@ -3093,6 +3340,146 @@ async function naploCsv() {
   ].map(biztos).join(';')));
   fajlLetolt('﻿' + sorok.join('\r\n'), `naplo_${ymd(new Date())}.csv`, 'text/csv;charset=utf-8');
   pirit('A napló letöltve (Excelben megnyitható).', 'siker');
+}
+
+/* @megemlítés: a mezőben @ után névre keres, és a teljes nevet szúrja be.
+   A szerver ebből dönti el, kit értesítsen. */
+function emlitesKiegeszito(mezo) {
+  let lista = null, talalatok = [], kivalasztott = 0;
+  const zar = () => { if (lista) { lista.remove(); lista = null; talalatok = []; } };
+
+  const nevek = () => (A.profilok.length ? A.profilok : [A.profil])
+    .filter(p => p && p.aktiv !== false && p.nev).map(p => p.nev);
+
+  function rajzol() {
+    if (!talalatok.length) { zar(); return; }
+    if (!lista) {
+      lista = document.createElement('div');
+      lista.className = 'emlites-lista';
+      document.body.appendChild(lista);
+    }
+    lista.innerHTML = talalatok.map((n, i) =>
+      `<button type="button" class="${i === kivalasztott ? 'kivalasztott' : ''}" data-nev="${esc(n)}">${esc(n)}</button>`).join('');
+    const r = mezo.getBoundingClientRect();
+    lista.style.left = (r.left + window.scrollX) + 'px';
+    lista.style.top = (r.bottom + window.scrollY + 4) + 'px';
+    lista.style.width = Math.min(320, r.width) + 'px';
+    $$('button', lista).forEach(b => b.onmousedown = e => { e.preventDefault(); beszur(b.dataset.nev); });
+  }
+
+  function beszur(nev) {
+    const poz = mezo.selectionStart;
+    const elotte = mezo.value.slice(0, poz);
+    const kezd = elotte.lastIndexOf('@');
+    if (kezd < 0) { zar(); return; }
+    mezo.value = elotte.slice(0, kezd) + '@' + nev + ' ' + mezo.value.slice(poz);
+    const uj = kezd + nev.length + 2;
+    mezo.setSelectionRange(uj, uj);
+    mezo.focus();
+    zar();
+  }
+
+  mezo.addEventListener('input', () => {
+    const poz = mezo.selectionStart;
+    const elotte = mezo.value.slice(0, poz);
+    const kezd = elotte.lastIndexOf('@');
+    if (kezd < 0 || /\s/.test(elotte.slice(kezd + 1, kezd + 2) || ' ') === false && false) { zar(); return; }
+    const toredek = elotte.slice(kezd + 1);
+    if (kezd < 0 || toredek.length > 30 || /\n/.test(toredek)) { zar(); return; }
+    const t = normal(toredek);
+    talalatok = nevek().filter(n => !t || normal(n).includes(t)).slice(0, 6);
+    kivalasztott = 0;
+    rajzol();
+  });
+  mezo.addEventListener('keydown', e => {
+    if (!lista || !talalatok.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); kivalasztott = (kivalasztott + 1) % talalatok.length; rajzol(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); kivalasztott = (kivalasztott + talalatok.length - 1) % talalatok.length; rajzol(); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); beszur(talalatok[kivalasztott]); }
+    else if (e.key === 'Escape') { zar(); }
+  });
+  mezo.addEventListener('blur', () => setTimeout(zar, 150));
+}
+
+/* a szövegben lévő @Név kiemelése megjelenítéskor */
+function emlitesekKiemelve(szoveg) {
+  const nevek = (A.profilok.length ? A.profilok : [A.profil])
+    .filter(p => p && p.nev).map(p => p.nev).sort((a, b) => b.length - a.length);
+  let ki = esc(szoveg);
+  nevek.forEach(n => {
+    const minta = new RegExp('@' + esc(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    ki = ki.replace(minta, `<span class="emlites">@${esc(n)}</span>`);
+  });
+  return ki;
+}
+
+/* ══════════════════════════════════════════════════ üzenőfal ══ */
+async function uzenofalHtml() {
+  const { data, error } = await sb.from('hirfal').select('*')
+    .order('kiemelt', { ascending: false }).order('mikor', { ascending: false }).limit(100);
+  if (error) return `<div class="kartya"><p class="modalis-hiba">${esc(hibaSzoveg(error))}</p></div>`;
+  const lista = data || [];
+  return `
+  <div class="kartya keskeny">
+    <div class="kartya-fej"><h2>Üzenőfal ${sugoJel('Közös falra írhatsz mindenkinek: cserék, kérések, információk. A @ jellel megemlíthetsz valakit a belépett kollégák közül — ő értesítést kap róla a harangnál.')}</h2></div>
+    <label for="fal-szoveg" class="rejtett-szoveg">Üzenet szövege</label>
+    <textarea id="fal-szoveg" maxlength="4000"
+      placeholder="Írj a kollégáknak… (@ jellel tudsz valakit megemlíteni)"></textarea>
+    <div class="fal-muvelet" style="justify-content:flex-end">
+      <button class="btn btn-fo" data-fal-kuld>Kiírás a falra</button>
+    </div>
+  </div>
+  <div class="keskeny">
+    ${lista.length ? lista.map(u => `
+      <div class="fal-uzenet ${u.kiemelt ? 'kiemelt' : ''}">
+        <div class="fal-fej">
+          <span class="fal-nev">${esc(u.szerzo_nev || '')}</span>
+          <span class="fal-ido">${new Date(u.mikor).toLocaleString('hu-HU')}${
+            u.modositva ? ' · szerkesztve' : ''}</span>
+          ${u.kiemelt ? '<span class="jelzo jelzo-arany">kiemelt</span>' : ''}
+        </div>
+        <div class="fal-szoveg">${emlitesekKiemelve(u.szoveg)}</div>
+        ${(u.szerzo_id === A.user.id || kezelo()) ? `<div class="fal-muvelet">
+          ${kezelo() ? `<button class="btn btn-kis" data-fal-kiemel="${u.id}">${
+            u.kiemelt ? 'Kiemelés levétele' : 'Kiemelés felülre'}</button>` : ''}
+          <button class="btn btn-kis btn-veszes" data-fal-torol="${u.id}">Törlés</button>
+        </div>` : ''}
+      </div>`).join('')
+      : '<div class="kartya ures">Még nincs üzenet a falon. Írd meg az elsőt!</div>'}
+  </div>`;
+}
+
+function uzenofalKotes() {
+  const mezo = $('#fal-szoveg');
+  if (mezo) emlitesKiegeszito(mezo);
+  const kuld = $('[data-fal-kuld]');
+  if (kuld) kuld.onclick = async () => {
+    const szoveg = mezo.value.trim();
+    if (!szoveg) { pirit('Írj be valamit, mielőtt kiírod a falra.', 'hiba'); return; }
+    kuld.disabled = true;
+    try {
+      ellenoriz(await sb.from('hirfal').insert({
+        szoveg, szerzo_id: A.user.id, szerzo_nev: A.profil.nev }).select('id'));
+      pirit('Kiírva a falra.', 'siker');
+      lapKirajzol();
+    } catch (e) { hibaKi(e); } finally { kuld.disabled = false; }
+  };
+  $$('[data-fal-torol]').forEach(b => b.onclick = () => megerosit('Üzenet törlése',
+    'Törlöd ezt az üzenetet a falról?', 'Törlés', async () => {
+      ellenoriz(await sb.from('hirfal').delete().eq('id', Number(b.dataset.falTorol)).select('id'),
+        'Ezt az üzenetet közben már törölték.');
+      lapKirajzol(); pirit('Törölve.', 'siker');
+    }));
+  $$('[data-fal-kiemel]').forEach(b => b.onclick = async () => {
+    const id = Number(b.dataset.falKiemel);
+    b.disabled = true;
+    try {
+      const { data } = await sb.from('hirfal').select('kiemelt').eq('id', id).maybeSingle();
+      ellenoriz(await sb.from('hirfal').update({ kiemelt: !(data && data.kiemelt) })
+        .eq('id', id).select('id'));
+      lapKirajzol();
+    } catch (e) { hibaKi(e); b.disabled = false; }
+  });
 }
 
 /* ══════════════════════════════════════════════════ kapcsolat ══ */
@@ -3335,6 +3722,20 @@ function sugoHtml() {
       <li><strong>Teljes lista letöltése (CSV)</strong>: az egész állomány, Excelben megnyitható.</li>
     </ul>
 
+    <h3>Üzenőfal, hozzászólások, értesítések</h3>
+    <ul class="sugo-lista">
+      <li>A fejlécben a <strong>💬</strong> gomb az <strong>üzenőfal</strong>: ide bárki írhat a
+        kollégáknak (csere, kérés, információ). A titkárság és a rendszergazda ki tud emelni egy
+        üzenetet felülre.</li>
+      <li>Minden foglalás adatlapján van <strong>hozzászólás</strong>: oda írj, ha az adott
+        oktatáshoz tartozik a kérdés. A foglalás gazdája és az oktató értesítést kap róla.</li>
+      <li>A <strong>@</strong> jellel megemlíthetsz bárkit a belépett kollégák közül — gépelés közben
+        felajánlja a neveket, és akit megemlítesz, értesítést kap.</li>
+      <li>A <strong>🔔</strong> harangnál látod a téged érintő értesítéseket: ha megemlítettek, ha
+        hozzászóltak a foglalásodhoz, vagy ha valaki neked foglalt, módosított vagy törölt termet.
+        Egy értesítésre kattintva rögtön odaugrik a felület.</li>
+    </ul>
+
     <h3>Termek, napló, fiókok</h3>
     <ul class="sugo-lista">
       <li><strong>Termek</strong>: a termek adatai, a naptárban megjelenített hét kihasználtsága
@@ -3345,7 +3746,9 @@ function sugoHtml() {
         az eszközök és a termek változásait mindenki látja (ez szándékos: így nem kell nyomozni,
         hová került egy eszköz); a fiók- és belépési sorokat csak a titkárság és a rendszergazda.
         Szűrhető típusra, személyre, és Excelbe letölthető.</li>
-      <li><strong>Fiókok</strong> (rendszergazda): szerep, belépés engedélyezése, jelszó-visszaállító levél.</li>
+      <li><strong>Fiókok</strong> (rendszergazda): szerep szerint csoportosított lista keresővel;
+        egy fiók adatlapján állítható a szerep, a belépés engedélyezése és a kötelező jelszócsere,
+        és onnan küldhető jelszó-visszaállító levél.</li>
       <li><strong>Visszajelzés</strong> (a nevedre kattintva a jobb felső menüben): ide írhatod, ha valami
         hibás vagy hiányzik.</li>
     </ul>
