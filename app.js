@@ -100,6 +100,7 @@ const A = {
   rajzJel: 0,
   sajatFoglalasok: null,
   ertesitesek: [],
+  nevlista: [],
   naptarKivetel: {},        // 'YYYY-MM-DD' -> {tipus, nev, forras}
   naptarEvek: new Set(),    // mely évekre van hiteles munkarend-adat
 };
@@ -354,6 +355,7 @@ function modalisNyitva() { return !!$('.modalis-hatter'); }
 /* A legfelső réteg bezárása. Ha van alatta réteg (megerősítő ablakból való
    visszalépés), az visszatér a beírt adatokkal együtt. */
 function zarModalis(csendben) {
+  document.querySelectorAll('.emlites-lista').forEach(x => x.remove());
   const allapot = modalisAllapot;
   if (allapot && allapot.elem && allapot.elem.parentNode) allapot.elem.remove();
   const alatta = modalisVerem.pop();
@@ -372,6 +374,7 @@ function zarModalis(csendben) {
 
 /* minden réteg bezárása (pl. sikeres mentés után) */
 function zarMindenModalist() {
+  document.querySelectorAll('.emlites-lista').forEach(x => x.remove());
   modalisVerem.length = 0;
   modalisAllapot = null;
   $('#modalis-tarto').innerHTML = '';
@@ -756,6 +759,15 @@ async function adatokBetolt() {
   A.termek = termek.data || [];
   if (profilok.error) console.error('Profilok betöltése:', profilok.error);
   A.profilok = profilok.data || [];
+  // a nevek listája mindenkinek elérhető (a @megemlítéshez) — e-mail és belépés nélkül
+  try {
+    const nevek = await sb.rpc('nevlista');
+    if (nevek.error) throw nevek.error;
+    A.nevlista = nevek.data || [];
+  } catch (e) {
+    console.error('Névlista:', e);
+    A.nevlista = A.profilok.length ? A.profilok : (A.profil ? [A.profil] : []);
+  }
   await Promise.all([foglalasokBetolt(), eszkozokBetolt(), ertesitesekBetolt()]);
   A.utolsoFrissites = new Date();
 }
@@ -826,10 +838,12 @@ function harangLista() {
   if (mind) mind.onclick = async e => {
     e.stopPropagation();
     try {
-      await sb.from('ertesites').update({ olvasva: true }).eq('cimzett_id', A.user.id).eq('olvasva', false);
+      const { error } = await sb.from('ertesites').update({ olvasva: true })
+        .eq('cimzett_id', A.user.id).eq('olvasva', false);
+      if (error) throw error;
       A.ertesitesek.forEach(x => { x.olvasva = true; });
       harangFrissit(); harangLista();
-    } catch (err) { hibaKi(err); }
+    } catch (err) { hibaKi(err); await ertesitesekBetolt(); harangLista(); }
   };
   $$('[data-ert]', lista).forEach(b => b.onclick = async () => {
     const ert = A.ertesitesek.find(x => x.id === Number(b.dataset.ert));
@@ -838,7 +852,13 @@ function harangLista() {
     if (!ert.olvasva) {
       ert.olvasva = true;
       harangFrissit();
-      sb.from('ertesites').update({ olvasva: true }).eq('id', ert.id).then(() => {}, () => {});
+      sb.from('ertesites').update({ olvasva: true }).eq('id', ert.id).select('id')
+        .then(({ error, data }) => {
+          if (error || !data || !data.length) {   // nem sikerült: visszaállítjuk a jelzést
+            ert.olvasva = false;
+            harangFrissit();
+          }
+        }, () => { ert.olvasva = false; harangFrissit(); });
     }
     const hiv = ert.hivatkozas || {};
     if (hiv.lap === 'uzenofal') { lapNyit('uzenofal'); return; }
@@ -883,6 +903,8 @@ async function hatterFrissites() {
       pirit(ujErtesites === 1 ? 'Új értesítésed érkezett (harang a fejlécben).'
         : `${ujErtesites} új értesítésed érkezett.`, '');
     }
+    const harang = $('#harang-lista');
+    if (harang && !harang.hidden) harangLista();
     if (A.lap === 'eszkozok' && !gepel) { elotteE = eszkozLenyomat(); await eszkozokBetolt(); }
     A.utolsoFrissites = new Date();
     if (A.frissitesHiba) { A.frissitesHiba = false; }
@@ -921,6 +943,7 @@ function lapNyit(lap) {
 }
 
 async function lapKirajzol() {
+  document.querySelectorAll('.emlites-lista').forEach(x => x.remove());
   const c = $('#tartalom');
   const jel = ++A.rajzJel;
   const idejemult = () => jel !== A.rajzJel;
@@ -3366,6 +3389,14 @@ function fiokAdatlap(id) {
     };
     const valtozott = Object.keys(uj).filter(k => uj[k] !== p[k]);
     if (!valtozott.length) { zarModalis(); pirit('Nem változott semmi.', ''); return; }
+    // az utolsó belépni tudó rendszergazda ne tudja kizárni magát
+    const adminokMaradnak = A.profilok.filter(x =>
+      x.szerep === 'admin' && x.aktiv && x.id !== p.id).length +
+      ((uj.szerep === 'admin' && uj.aktiv) ? 1 : 0);
+    if (p.szerep === 'admin' && p.aktiv && adminokMaradnak === 0) {
+      return hiba('Ez az utolsó rendszergazdai fiók, amelyik be tud lépni — nem lehet letiltani ' +
+        'vagy visszaminősíteni. Előbb adj valaki másnak rendszergazdai szerepet.');
+    }
     const ment = async () => {
       const gomb = $('[data-ment]', h);
       gomb.disabled = true;
@@ -3545,8 +3576,8 @@ function emlitesKiegeszito(mezo) {
   let lista = null, talalatok = [], kivalasztott = 0;
   const zar = () => { if (lista) { lista.remove(); lista = null; talalatok = []; } };
 
-  const nevek = () => (A.profilok.length ? A.profilok : [A.profil])
-    .filter(p => p && p.aktiv !== false && p.nev).map(p => p.nev);
+  const nevek = () => (A.nevlista.length ? A.nevlista : (A.profil ? [A.profil] : []))
+    .filter(p => p && p.nev).map(p => p.nev);
 
   function rajzol() {
     if (!talalatok.length) { zar(); return; }
@@ -3602,14 +3633,16 @@ function emlitesKiegeszito(mezo) {
 
 /* a szövegben lévő @Név kiemelése megjelenítéskor */
 function emlitesekKiemelve(szoveg) {
-  const nevek = (A.profilok.length ? A.profilok : [A.profil])
-    .filter(p => p && p.nev).map(p => p.nev).sort((a, b) => b.length - a.length);
-  let ki = esc(szoveg);
-  nevek.forEach(n => {
-    const minta = new RegExp('@' + esc(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-    ki = ki.replace(minta, `<span class="emlites">@${esc(n)}</span>`);
-  });
-  return ki;
+  const nevek = (A.nevlista.length ? A.nevlista : (A.profil ? [A.profil] : []))
+    .filter(p => p && p.nev).map(p => p.nev)
+    .sort((a, b) => b.length - a.length);            // a leghosszabb név nyerjen
+  const ki = esc(szoveg);
+  if (!nevek.length) return ki;
+  const minta = new RegExp('@(' + nevek
+    .map(n => esc(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') +
+    ')(?![\\p{L}\\p{N}])', 'gu');
+  // egy menetben cserélünk, függvénnyel — így nem ágyazódnak egymásba a kiemelések
+  return ki.replace(minta, (egesz, nev) => `<span class="emlites">@${nev}</span>`);
 }
 
 /* ══════════════════════════════════════════════════ üzenőfal ══ */
