@@ -201,9 +201,7 @@ main{padding:1rem; max-width:1500px; margin:0 auto}
 /* áthelyezett (ledolgozós) munkanap: hangsúlyosan munkanap, nem hétvége */
 .racs-fej.jelleg-athelyezett-munkanap .nap-szam{color:var(--zold)}
 .racs-fej.jelleg-athelyezett-munkanap .unnep-nev{color:var(--zold)}
-.honap-cella.jelleg-athelyezett-munkanap{background:#f4fbf7}
 .honap-cella.jelleg-athelyezett-munkanap .honap-unnep{color:var(--zold)}
-.honap-cella.jelleg-pihenonap{background:#fdf6f7}
 .munkarend-sav{margin:.2rem 0 .6rem}
 .szuro-sav.munkarend-figyelem{background:#fdf5e4; border-color:#f0dcae; color:#7a5406}
 .ido-tengely{position:sticky; left:0; z-index:15; background:#fff;
@@ -296,6 +294,11 @@ main{padding:1rem; max-width:1500px; margin:0 auto}
   color:var(--azur); cursor:pointer; text-align:left; padding:.1rem .25rem;
 }
 .honap-tovabb:hover{text-decoration:underline}
+/* a nap jellege felülírja a hétvége-tintát (a sorrend miatt kell ide) */
+.honap-cella.jelleg-athelyezett-munkanap{background:#f2faf6}
+.honap-cella.jelleg-pihenonap{background:#fdf4f5}
+.honap-cella.jelleg-munkaszuneti{background:#fdf0f2}
+.honap-cella.ma{background:#eef2fb}
 
 @media (max-width:820px){
   .honap-cella{min-height:64px; padding:.2rem}

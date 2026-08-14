@@ -432,6 +432,7 @@ function ellenoriz({ data, error }, uresSzoveg) {
 async function belepesInditas() {
   // lejárt vagy hibás jelszó-visszaállító link: a Supabase a hash-ben küld hibát
   const hash = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  if (hash.get('type') === 'recovery') A.visszaallitas = true;   // jelszó-visszaállító link
   if (hash.get('error') || hash.get('error_description')) {
     const leiras = hash.get('error_description') || '';
     history.replaceState(null, '', location.pathname);
@@ -911,7 +912,10 @@ function naptarHtml() {
 /* Jelzés a munkarend hitelességéről: a munkaszüneti napok a törvényből jönnek, az
    áthelyezett munkanapok a rendeletből — ha egy évre nincs rendelet-adat, azt megírjuk. */
 function munkarendSav() {
-  const evek = [...new Set(napokAMostaniNezetben().map(d => d.getFullYear()))];
+  const napok = A.nezet === 'honap'
+    ? napokAMostaniNezetben().filter(d => d.getMonth() === A.nap.getMonth())
+    : napokAMostaniNezetben();
+  const evek = [...new Set(napok.map(d => d.getFullYear()))];
   const hianyzo = evek.filter(e => !A.naptarEvek.has(e));
   const forrasok = [...new Set(Object.values(A.naptarKivetel).map(k => k.forras))];
   if (!hianyzo.length) {
@@ -921,10 +925,10 @@ function munkarendSav() {
       ${sugoJel('A naptár a munkaszüneti napokat kiszámolja (a mozgó ünnepeket a húsvét dátumából), az áthelyezett munkanapokat viszont nem lehet kiszámolni: azokat évente miniszteri rendelet állapítja meg, ezért a rendeletből vannak felvéve, a forrás megjelölésével. Ha egy évre még nincs rendelet, a felület ezt kiírja, és nem tippel.')}</p>`;
   }
   return `<div class="szuro-sav munkarend-figyelem">
-    ${hianyzo.join(', ')}: erre az évre az <strong>áthelyezett munkanapok</strong> még nincsenek
-    felvéve (ezeket évente miniszteri rendelet állapítja meg, nem lehet kiszámolni).
-    A munkaszüneti napok jelölése a törvény szerint pontos, a „ledolgozós” szombatokra és a
-    hozzájuk tartozó pihenőnapokra viszont ne támaszkodj — szólj a rendszergazdának.
+    ${hianyzo.join(', ')}: a munkaszüneti napok jelölése a törvény szerint pontos, az
+    <strong>áthelyezett („ledolgozós”) munkanapok</strong> viszont erre az évre még nincsenek
+    felvéve — ezeket évente miniszteri rendelet állapítja meg, általában az előző év tavaszán.
+    Amíg megjelenik, a ledolgozós szombatokra és a hozzájuk tartozó pihenőnapokra ne támaszkodj.
     ${sugoJel('A hiányzó évet a rendszergazda tudja felvenni az adatbázisban a hatályos rendelet alapján (terem.naptar_kivetel tábla).')}
   </div>`;
 }
@@ -1405,7 +1409,7 @@ function foglalasModalis(f, elo) {
       placeholder="pl. 2 db Little Anne, projektor, videolaringoszkóp">
     ${uj ? `
       <div class="mezo-sor">
-        <div><span class="cimke-sor"><label for="fm-ismet">Ismétlés</label>${sugoJel('Minden alkalom önálló foglalás lesz, tehát egyet-egyet külön is módosíthatsz vagy törölhetsz. A már foglalt időket kihagyja, és a végén felsorolja, mi maradt ki. Az ünnepnapokat nem hagyja ki.')}</span><select id="fm-ismet">
+        <div><span class="cimke-sor"><label for="fm-ismet">Ismétlés</label>${sugoJel('Minden alkalom önálló foglalás lesz, tehát egyet-egyet külön is módosíthatsz vagy törölhetsz. A már foglalt időket kihagyja, és a végén felsorolja, mi maradt ki. A heti és a kétheti ismétlés a munkaszüneti napokra is felveszi az alkalmat (a végén jelezzük); a „munkanapokon” a hivatalos munkarendet követi, tehát az ünnepek és a pihenőnapok kimaradnak, a ledolgozós szombat viszont munkanap.')}</span><select id="fm-ismet">
           <option value="0">nem ismétlődik</option>
           <option value="1">minden héten</option>
           <option value="2">kéthetente</option>
@@ -1587,7 +1591,7 @@ function foglalasModalis(f, elo) {
         const ismet = Number($('#fm-ismet', h).value);
         const alkalom = Math.max(1, Math.min(40, Number($('#fm-alkalom', h).value) || 1));
         const sorozatId = (ismet && alkalom > 1) ? kriptoId() : null;
-        const napok = [];
+        const napok = [], kihagyott = [];
         let d0 = new Date(datum + 'T00:00:00');
         let db = 0, lepes = 0;
         while (db < (ismet ? alkalom : 1) && lepes < 400) {
@@ -1596,6 +1600,7 @@ function foglalasModalis(f, elo) {
             // a hivatalos munkarend szerint: a ledolgozós szombat munkanap,
             // a munkaszüneti nap és az áthelyezett pihenőnap kimarad
             if (!pihenoNapE(d0)) { napok.push(new Date(d0)); db++; }
+            else if (napJelleg(d0).cimke) kihagyott.push(new Date(d0));
             d0 = napPlusz(d0, 1);
           } else {
             napok.push(new Date(d0)); db++;
@@ -1625,11 +1630,12 @@ function foglalasModalis(f, elo) {
           return hiba('Ebben a teremben a választott időben már van foglalás. Válassz másik időt vagy termet.');
         }
         sikeres = true;
-        if (utkozott.length || egyebHiba) {
+        const jelzendo = kesz.some(d => ['munkaszuneti', 'pihenonap'].includes(napJelleg(d).fajta));
+        if (utkozott.length || egyebHiba || jelzendo || kihagyott.length) {
           zarModalis();
           await foglalasokBetolt();
           lapKirajzol();
-          sorozatOsszegzo(kesz, utkozott, egyebHiba);
+          sorozatOsszegzo(kesz, utkozott, egyebHiba, kihagyott);
           return;
         }
         pirit(kesz.length === 1 ? 'Foglalás mentve.' : `${kesz.length} alkalom mentve.`, 'siker');
@@ -1648,7 +1654,7 @@ function foglalasModalis(f, elo) {
 }
 
 /* ismétlődő mentés összegzése — hogy ne toastban kelljen elolvasni */
-function sorozatOsszegzo(kesz, utkozott, egyebHiba) {
+function sorozatOsszegzo(kesz, utkozott, egyebHiba, kihagyott = []) {
   const unnepre = kesz.filter(d => ['munkaszuneti', 'pihenonap'].includes(napJelleg(d).fajta));
   const h = modalis({
     cim: 'Ismétlődő foglalás eredménye',
@@ -1659,6 +1665,9 @@ function sorozatOsszegzo(kesz, utkozott, egyebHiba) {
         ${unnepre.length} alkalom munkaszüneti napra vagy pihenőnapra esik
         (${unnepre.map(d => `${rovidNap(d)} — ${esc(napJelleg(d).cimke || 'pihenőnap')}`).join(', ')}).
         Ha ezek nem lesznek megtartva, töröld őket egyenként a naptárban.</p>` : ''}
+      ${kihagyott.length ? `<p><strong>${kihagyott.length} nap kimaradt a munkarend miatt</strong>
+        (a munkaszüneti napokra és a pihenőnapokra nem vettünk fel alkalmat):<br>
+        <span class="halk">${kihagyott.map(d => `${rovidNap(d)} — ${esc(napJelleg(d).cimke)}`).join(', ')}</span></p>` : ''}
       ${utkozott.length ? `<p><strong>${utkozott.length} alkalom kimaradt</strong>, mert a terem
         akkor már foglalt volt:<br><span class="halk">${utkozott.map(rovidNap).join(', ')}</span></p>
         <p class="sugoszoveg">Ezeket másik teremben vagy másik időben tudod felvenni.</p>` : ''}
@@ -2110,6 +2119,7 @@ async function eszkozAktivValt(id, aktiv) {
   ellenoriz(await sb.from('equipment').update({ aktiv }).eq('id', id).select('id'),
     'Ez a tétel közben megszűnt vagy nincs rá jogosultságod.');
   await eszkozokBetolt();
+  if (!A.eszkozok.some(x => x.aktiv === false)) A.eszkSzuro.inaktiv = false;
   lapKirajzol();
   pirit(aktiv ? `${e ? e.nev : 'Az eszköz'} visszatéve a használatban lévők közé.`
               : `${e ? e.nev : 'Az eszköz'} kivéve — a lap alján, a „Nem használt” részben találod.`,
