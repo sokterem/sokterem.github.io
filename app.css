@@ -522,6 +522,12 @@ input.mentve,select.mentve{background:#e8f7ee; border-color:var(--zold)}
   .esemeny{color:#000 !important; background:#fff !important;
     border:1px solid #666 !important; box-shadow:none}
   .agenda-sor{break-inside:avoid}
+  /* hónap nézet nyomtatva: a rács maradjon egyben, a cellák ne törjenek ketté */
+  .honap-racs{break-inside:avoid}
+  .honap-cella{break-inside:avoid; min-height:60px;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact}
+  .honap-esemeny{border:1px solid #666 !important; background:#fff !important}
+  .kpi-sor,.nem-hasznalt-blokk .kartya-fej button,.sugo-jel{display:none !important}
   .nyomtatas-fej{display:block !important; margin-bottom:.6rem}
   .nyomtatas-fej span{display:block; font-size:10px; color:#444}
 }
