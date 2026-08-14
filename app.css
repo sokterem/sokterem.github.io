@@ -431,6 +431,10 @@ dl{margin:.3rem 0 0}
 .rejtett-szoveg{position:absolute; width:1px; height:1px; overflow:hidden;
   clip:rect(0 0 0 0); white-space:nowrap}
 abbr.kell{color:var(--piros); text-decoration:none; cursor:help}
+/* címke + magyarázó kérdőjel egy sorban (a ? nem a label belsejében, hogy a
+   képernyőolvasó ne olvassa a mező nevének, és a rákattintás ne a mezőt aktiválja) */
+.cimke-sor{display:flex; align-items:center; gap:.2rem}
+.cimke-sor label{margin-bottom:.25rem}
 .unnep-cimke{color:var(--piros)}
 
 .gyors-sor{display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;

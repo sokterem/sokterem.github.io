@@ -544,6 +544,12 @@ $('#jelszocsere-form').addEventListener('submit', async e => {
 
 /* ══════════════════════════════════════════════════ indulás ══ */
 async function appIndit(user) {
+  if (appIndit._fut) return;          // visszaállító linknél két úton is beeshetne
+  appIndit._fut = true;
+  try { await appInditBelso(user); } finally { appIndit._fut = false; }
+}
+
+async function appInditBelso(user) {
   A.user = user;
   let profil;
   try {
@@ -1362,7 +1368,7 @@ function foglalasModalis(f, elo) {
         <select id="fm-terem">${termek.map(t =>
           `<option value="${t.id}" ${t.id === roomId ? 'selected' : ''}>${esc(t.kod)} · ${esc(t.nev)}${
             t.ferohely ? ` (${t.ferohely} fő)` : ''}</option>`).join('')}</select></div>
-      <div><label for="fm-tipus">Típus ${sugoJel('Csak jelölés, hogy egy pillantással látszódjon, mi történik a teremben. A napi nézetben a blokk színe ezt követi.')}</label>
+      <div><span class="cimke-sor"><label for="fm-tipus">Típus</label>${sugoJel('Csak jelölés, hogy egy pillantással látszódjon, mi történik a teremben. A napi nézetben a blokk színe ezt követi.')}</span>
         <select id="fm-tipus">${Object.entries(TIPUSOK).map(([k, v]) =>
           `<option value="${k}" ${f && f.tipus === k ? 'selected' : ''}>${esc(v.nev)}</option>`).join('')}</select></div>
     </div>
@@ -1378,7 +1384,7 @@ function foglalasModalis(f, elo) {
         <input type="time" id="fm-veg" step="900" value="${vegIdo}"></div>
     </div>
     <div class="mezo-sor">
-      <div><label for="fm-oktato">Ki tartja ${sugoJel('Az oktató neve — lehet más is, mint aki foglal. Ha valaki más nevét írod be, annál a kollégánál megjelenik a Foglalásaim lapon, az „Amit nekem foglaltak” részben.')}</label>
+      <div><span class="cimke-sor"><label for="fm-oktato">Ki tartja</label>${sugoJel('Az oktató neve — lehet más is, mint aki foglal. Ha valaki más nevét írod be, annál a kollégánál megjelenik a Foglalásaim lapon, az „Amit nekem foglaltak” részben.')}</span>
         <input id="fm-oktato" maxlength="120" list="fm-oktato-lista"
           value="${esc(f ? (f.oktato || '') : (kezelo() ? '' : A.profil.nev))}"
           placeholder="${kezelo() ? 'kinek foglalod' : ''}">
@@ -1390,12 +1396,12 @@ function foglalasModalis(f, elo) {
     </div>
     <label for="fm-leiras">Megjegyzés</label>
     <textarea id="fm-leiras" maxlength="2000" placeholder="Amit a titkárságnak vagy a kollégáknak tudni érdemes.">${esc(f ? (f.leiras || '') : '')}</textarea>
-    <label for="fm-eszkoz">Eszközigény ${sugoJel('Szabad szöveg annak, aki előkészíti a termet: mit kell odakészíteni. Az Eszközök lap nyilvántartásából nem foglal le semmit.')}</label>
+    <span class="cimke-sor"><label for="fm-eszkoz">Eszközigény</label>${sugoJel('Szabad szöveg annak, aki előkészíti a termet: mit kell odakészíteni. Az Eszközök lap nyilvántartásából nem foglal le semmit.')}</span>
     <input id="fm-eszkoz" maxlength="500" value="${esc(f ? (f.eszkozigeny || '') : '')}"
       placeholder="pl. 2 db Little Anne, projektor, videolaringoszkóp">
     ${uj ? `
       <div class="mezo-sor">
-        <div><label for="fm-ismet">Ismétlés ${sugoJel('Minden alkalom önálló foglalás lesz, tehát egyet-egyet külön is módosíthatsz vagy törölhetsz. A már foglalt időket kihagyja, és a végén felsorolja, mi maradt ki. Az ünnepnapokat nem hagyja ki.')}</label><select id="fm-ismet">
+        <div><span class="cimke-sor"><label for="fm-ismet">Ismétlés</label>${sugoJel('Minden alkalom önálló foglalás lesz, tehát egyet-egyet külön is módosíthatsz vagy törölhetsz. A már foglalt időket kihagyja, és a végén felsorolja, mi maradt ki. Az ünnepnapokat nem hagyja ki.')}</span><select id="fm-ismet">
           <option value="0">nem ismétlődik</option>
           <option value="1">minden héten</option>
           <option value="2">kéthetente</option>
@@ -2185,7 +2191,7 @@ async function eszkozAdatlap(id) {
     </div>
 
     <h3 class="szakasz">Használat</h3>
-    <label for="ea-aktiv">Használatban van? ${sugoJel('A „nem használt” tétel nem törlődik, csak kikerül a listából — a leltárban és az előzményben megmarad. Bármikor visszaállítható.')}</label>
+    <span class="cimke-sor"><label for="ea-aktiv">Használatban van?</label>${sugoJel('A „nem használt” tétel nem törlődik, csak kikerül a listából — a leltárban és az előzményben megmarad. Bármikor visszaállítható.')}</span>
     <select id="ea-aktiv">
       <option value="1" ${uj || e.aktiv !== false ? 'selected' : ''}>igen — látszik a listában</option>
       <option value="0" ${!uj && e.aktiv === false ? 'selected' : ''}>nem használt — kikerül a listából</option>
@@ -2764,10 +2770,12 @@ function kapcsolatHtml() {
         <dd>A belépőképernyőn az „Elfelejtett jelszó” gombbal e-mailben kapsz linket.
           Ha az nem jön meg, keresd a titkárságot.</dd></div>
     </dl>
-    ${kezelok.length ? `<h3 class="szakasz">Akik kezelik a rendszert</h3>
-      <ul class="sugo-lista">${kezelok.map(p =>
+    <h3 class="szakasz">Akik kezelik a rendszert</h3>
+    ${kezelok.length ? `<ul class="sugo-lista">${kezelok.map(p =>
         `<li>${esc(p.nev)}${p.beosztas ? ` — ${esc(p.beosztas)}` : ''}
-          (${esc(SZEREPEK[p.szerep])})</li>`).join('')}</ul>` : ''}
+          (${esc(SZEREPEK[p.szerep])})</li>`).join('')}</ul>`
+      : `<p class="halk">A termek beosztását a titkárság kezeli (fenti cím), a felületet és a
+         fiókokat a rendszergazda. Nevekre a Napló lapon is látod, ki mit módosított.</p>`}
     <p class="sugoszoveg">A rendszer minden foglalást és eszközmozgatást név szerint tart nyilván,
       és a Napló lapon visszakereshető. Az adatok az egyetem Supabase-adatbázisában vannak,
       belépés nélkül semmi nem érhető el.</p>
