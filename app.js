@@ -153,7 +153,10 @@ function ugyanazAzEmber(a, b) {
   const kisebb = x.length <= y.length ? x : y;
   const nagyobb = x.length <= y.length ? y : x;
   const egyezo = kisebb.filter(t => nagyobb.includes(t));
-  return egyezo.length === kisebb.length && egyezo.length >= Math.min(2, kisebb.length);
+  if (egyezo.length !== kisebb.length) return false;
+  // legalább két névelem (családi + utónév) egyezzen, hogy egy puszta vezetéknév
+  // ne párosítson össze két különböző embert
+  return egyezo.length >= 2 || (x.length === 1 && y.length === 1);
 }
 
 function kezelo() { return !!A.profil && ['admin', 'titkarsag'].includes(A.profil.szerep); }
@@ -3383,9 +3386,11 @@ function emlitesKiegeszito(mezo) {
     const poz = mezo.selectionStart;
     const elotte = mezo.value.slice(0, poz);
     const kezd = elotte.lastIndexOf('@');
-    if (kezd < 0 || /\s/.test(elotte.slice(kezd + 1, kezd + 2) || ' ') === false && false) { zar(); return; }
+    if (kezd < 0) { zar(); return; }
     const toredek = elotte.slice(kezd + 1);
-    if (kezd < 0 || toredek.length > 30 || /\n/.test(toredek)) { zar(); return; }
+    // a @ csak szó elején indít kiegészítést, és a töredék ne legyen hosszú vagy többsoros
+    const elotteKar = kezd > 0 ? elotte[kezd - 1] : ' ';
+    if (!/[\s(]/.test(elotteKar) || toredek.length > 30 || /\n/.test(toredek)) { zar(); return; }
     const t = normal(toredek);
     talalatok = nevek().filter(n => !t || normal(n).includes(t)).slice(0, 6);
     kivalasztott = 0;
